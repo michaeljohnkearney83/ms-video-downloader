@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+import "Protos/ms_vdapi_common_objects.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos.FromClient";
+
+package ms_ms_vdapi;
+
+service VdapiCallsForClient {
+
+  rpc RequestDownload (RequestDownloadRequest) returns (RequestDownloadResponse)  {
+    option (google.api.http) = {
+        post: "/v1/client/download",
+        body: "*"
+    };
+  }
+
+  rpc RequestExtractInfoFormats (RequestExtractInfoFormatsRequest) returns (RequestExtractInfoFormatsResponse)  {
+    option (google.api.http) = {
+        post: "/v1/client/download/extractInfo/formats",
+        body: "*"
+    };
+  }
+  
+  rpc GetSessionId (GetSessionIdRequest) returns (GetSessionIdResponse)  {
+    option (google.api.http) = {
+        get: "/v1/client/session/{username}/{fid}/{client_name}/{deployment_no}"
+    };
+  }
+
+  rpc GetDownloadsBySessionId (GetDownloadsBySessionIdRequest) returns (GetDownloadsBySessionIdResponse)  {
+    option (google.api.http) = {
+        get: "/v1/client/downloads/{download_sesssion_id}"
+    };
+  }
+
+  rpc GetDownloadsProgressByClient (GetDownloadsProgressByClientRequest) returns (GetDownloadsProgressByClientResponse)  {
+    option (google.api.http) = {
+        get: "/v1/client/downloadsProgress/{client_name}/{username}/{deployment_no}/{from}/{to}"
+    };
+  }
+
+  rpc GetDownloadById (ExistingDownloadByIdRequest) returns (ExistingDownloadResponse)  {
+    option (google.api.http) = {
+        get: "/v1/client/download/{client_id}"
+    };
+  }
+  rpc GetDownloadsForUser (ExistingDownloadsByUserRequest) returns (ExistingDownloadAllResponse) {
+    option (google.api.http) = {
+        get: "/v1/client/download/{username}"
+    };
+  }
+  rpc GetDownloads (ExistingDownloadsByTimestampRequest) returns (ExistingDownloadAllResponse) {
+    option (google.api.http) = {
+        get: "/v1/client/download"
+    };
+  }
+}
+
+message GetSessionIdRequest {
+    string username = 1;
+    string fid = 2;
+    string client_name = 3;
+    string deployment_no = 4;
+}
+
+message GetSessionIdResponse {
+    string download_sesssion_id = 1;
+    repeated DownloadProgressResponse downloads = 2;
+    Feedback feedback = 3;
+}
+
+message GetDownloadsBySessionIdRequest {
+    string download_sesssion_id = 1;
+}
+
+message GetDownloadsBySessionIdResponse {
+    repeated DownloadProgressResponse downloads = 1;
+    Feedback feedback = 2;
+}
+
+message GetDownloadsProgressByClientRequest {
+    string client_name = 1;
+    string username = 2;
+    string deployment_no = 3;
+    google.protobuf.Timestamp from = 4;
+    google.protobuf.Timestamp to = 5;
+}
+
+message GetDownloadsProgressByClientResponse {
+    repeated DownloadProgressResponse downloads = 1;
+    Feedback feedback = 2;
+}
+
+message DownloadProgressResponse {
+    string client_id = 1;
+    string requested_download_name = 2;
+    string requested_url = 3;
+    google.protobuf.Timestamp requested_on = 4;
+    string status = 5;
+    string progress_percentage = 6;
+    Feedback feedback = 7;
+}
+
+message RequestDownloadRequest {
+    string download_session_id = 1;
+    string requested_url = 2;
+    string requested_download_folder = 3;
+    string requested_download_name = 4;
+    string requested_download_ext = 5;
+    int32 requested_retry_count = 6;
+    int32 requested_timeout_seconds = 7;
+    int32 requested_download_stalled_timeout_seconds = 8;
+    int32 force = 9;
+}
+
+message RequestDownloadResponse {
+    string client_id = 1;
+    int32 active_download_exists = 2;
+    Feedback feedback = 3;
+}
+
+message RequestExtractInfoFormatsRequest {
+    string download_session_id = 1;
+    string requested_url = 2;
+    int32 timeout_ms = 3;
+}
+
+message RequestExtractInfoFormatsResponse {
+    ExtractInfo extract_info = 1;
+    int32 active_extract_info_existed = 2; 
+    Feedback feedback = 3;
+}
+
+message ExistingDownloadByIdRequest {
+    string username = 1;
+    string fid = 2;
+    string client_id = 3;
+}
+
+message ExistingDownloadsByUserRequest {
+    string username = 1;
+    string fid = 2;
+}
+
+message ExistingDownloadsByTimestampRequest {
+    string username= 1;
+    string fid = 2;
+    google.protobuf.Timestamp from = 4;
+    google.protobuf.Timestamp to = 5;
+}
+
+message ExistingDownloadResponse {
+    string video_id = 1;
+    string video_title = 2;
+    string video_duration = 3;
+    string video_total_bytes = 4;
+    google.protobuf.Timestamp requested_on = 5;
+    google.protobuf.Timestamp last_activity = 6;
+    string status = 7;
+    string filename = 8;
+    string progress_eta = 9;
+    string progress_speed = 10;
+    string progress_percent = 11;
+    string progress_elapsed = 12;
+    string progress_default_template = 13;
+    Feedback feedback = 14;
+}
+
+message ExistingDownloadAllResponse {
+    repeated ExistingDownloadResponse downloads = 1;
+    Feedback feedback = 2;
+}

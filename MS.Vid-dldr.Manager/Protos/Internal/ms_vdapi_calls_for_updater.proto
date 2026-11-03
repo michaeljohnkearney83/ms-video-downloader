@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+import "Protos/ms_vdapi_common_objects.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos";
+
+package ms_ms_vdapi;
+
+service VdApiCallsForUpdater {
+
+  rpc UpdateDownloadProgressAnalysis(UpdateDownloadProgressAnalysisRequest) returns (UpdateDownloadProgressAnalysisResponse)  {
+    option (google.api.http) = {
+        put: "/v1/updater/downloadProgress/analysis",
+        body: "*"
+    };
+  }
+  rpc UpdateDownloadProgressDownloading(UpdateDownloadProgressDownloadingRequest) returns (UpdateDownloadProgressDownloadingResponse)  {
+    option (google.api.http) = {
+        put: "/v1/updater/downloadProgress/downloading",
+        body: "*"
+    };
+  }
+  rpc UpdateDownloadProgressFinished(UpdateDownloadProgressFinishedRequest) returns (UpdateDownloadProgressFinishedResponse)  {
+    option (google.api.http) = {
+        put: "/v1/updater/downloadProgress/finished",
+        body: "*"
+    };
+  }
+  rpc UpdateDownloadProgressErrored(UpdateDownloadProgressErroredRequest) returns (UpdateDownloadProgressErroredResponse)  {
+    option (google.api.http) = {
+        put: "/v1/updater/downloadProgress/errored",
+        body: "*"
+    };
+  }
+  rpc SetVersions(SetVersionsRequest) returns (SetVersionsResponse)  {
+    option (google.api.http) = {
+        post: "/v1/updater/versions",
+        body: "*"
+    };
+  }
+
+  rpc UpdateRequestExtractInfoFormats(UpdateRequestExtractInfoFormatsRequest) returns (UpdateRequestExtractInfoFormatsResponse) {
+    option (google.api.http) = {
+        post: "/v1/updater/extractInfo/formats",
+        body: "*"
+    };
+  }
+}
+
+message UpdateDownloadProgressAnalysisRequest {
+    int32 id = 1;
+    string video_id = 2;
+    string video_title = 3;
+    string video_description = 4;
+    string video_duration = 5;
+    string video_thumbnail = 6;
+    string video_url = 7;
+    string video_resolution = 8;
+    string video_aspec_ratio = 9;
+    string video_file_size_approx = 10;
+    google.protobuf.Timestamp last_activity = 11;
+    string status = 12;
+}
+
+message UpdateDownloadProgressAnalysisResponse {
+    Feedback feedback = 1;
+}
+
+message UpdateDownloadProgressDownloadingRequest {
+    int32 id = 1;
+    google.protobuf.Timestamp last_activity = 2;
+    string status = 3;
+    string progress_eta = 4;
+    string progress_speed = 5;
+    string progress_percent = 6;
+    string progress_elapsed = 7;
+    string progress_default_template = 8;
+    string error_message = 9;
+    string filename = 10;
+}
+
+message UpdateDownloadProgressDownloadingResponse {
+    Feedback feedback = 1;
+}
+
+message UpdateDownloadProgressFinishedRequest {
+    int32 id = 1;
+    google.protobuf.Timestamp last_activity = 2;
+    string status = 3;
+}
+
+message UpdateDownloadProgressFinishedResponse {
+    Feedback feedback = 1;
+}
+
+message UpdateDownloadProgressErroredRequest {
+    int32 id = 1;
+    google.protobuf.Timestamp last_activity = 2;
+    string status = 3;
+    string error_message = 4;
+}
+
+message UpdateDownloadProgressErroredResponse {
+    Feedback feedback = 1;
+}
+
+message SetVersionsRequest {
+    string manager_app = 1;
+    string manager_framework = 2;
+    string manager_db = 3;
+    string manager_db_last_migration = 4;
+    string downloader_app = 5;
+    string downloader_framework = 6;
+    string downloader_ytdlp = 7;
+    string updater_app = 8;
+    string updater_framework = 9;
+    string requested = 10;
+}
+
+message SetVersionsResponse {
+    Feedback feedback = 1;
+}
+
+message UpdateRequestExtractInfoFormatsRequest {
+    int32 id = 1;
+    ExtractInfo extract_info = 2;
+}
+
+message UpdateRequestExtractInfoFormatsResponse {
+    Feedback feedback = 2;
+}

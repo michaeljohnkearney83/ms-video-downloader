@@ -1,0 +1,20 @@
+# .NET build output
+[Bb]in/
+[Oo]bj/
+.vs/
+*.user
+*.suo
+
+# Test results and coverage
+TestResults/
+*.trx
+coverage*.xml
+
+# Runtime logs (Manager writes to Logs/)
+[Ll]ogs/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/

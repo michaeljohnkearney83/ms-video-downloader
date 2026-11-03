@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos.Common";
+
+package ms_ms_vdapi;
+
+service  VdApiCommonObjects {
+  
+    rpc NotForUse_RegisterFeedback (Feedback) returns (Feedback)  {
+  }
+}
+
+message Feedback {
+    string information_message = 1;
+    string warning_message = 2;
+    string error_message = 3;
+    string exception = 4;
+    string request_json_string = 5;
+}
+
+message DownloadRequested {
+    string client_id = 1;
+    google.protobuf.Timestamp on = 2;
+    string url = 3;
+    string folder = 4;
+    string name = 5;
+    string ext = 6;
+    int32 retry_count = 7;
+    int32 timeout_seconds = 8;
+    int32 stalled_timeout_seconds = 9;
+}
+
+message VideoAnalysis {
+    string id = 1;
+    string title = 2;
+    string description = 3;
+    string duration = 4;
+    string thumbnail = 5;
+    string url = 6;
+    string resolution = 7;
+    string aspect_ratio = 8;
+    string file_size_aprox = 9;
+}
+
+message DownloadProgress {
+    string eta = 1;
+    string speed = 2;
+    string percent = 3;
+    string elapsed = 4;
+    string default_template = 5;
+}
+
+message SoftwareVersions {
+    string manager_app = 1;
+    string manager_framework = 2;
+    string manager_db = 3;
+    string manager_db_last_migration = 4;
+    string downloader_app = 5;
+    string downloader_framework = 6;
+    string downloader_ytdlp = 7;
+    string updater_app = 8;
+    string updater_framework = 9;
+    string requested = 10;
+    string ytdlp_git = 11;
+}
+
+message ExtractInfo {
+    repeated Format formats = 1;
+}
+
+message Format {
+    string format_id = 1;
+    string format_note = 2;
+    string ext = 3;
+    string protocol = 4;
+    string acodec = 5;
+    string vcodec = 6;
+    string url = 7;
+    int32 width = 8;
+    int32 height = 9;
+    double fps = 10;
+    int32 rows = 11;
+    int32 columns = 12;
+    repeated Fragment fragments = 13;
+    string audio_ext = 14;
+    string video_ext = 15;
+    double vbr = 16;
+    double abr = 17;
+    double tbr = 18;
+    string resolution = 19;
+    double aspect_ratio = 20;
+    int32 filesize_approx = 21;
+    //repeated HttpHeaders http_headers = 22;
+    string format_title = 23;
+    //object format_index = 24;
+    string manifest_url = 25;
+    string language = 26;
+    //object preference = 27;
+    double quality = 28;
+    int32 has_drm = 29;
+    int32 source_preference = 30;
+    int32 asr = 31;
+    int32 filesize = 32;
+    int32 audio_channels = 33;
+    int32 language_preference = 34;
+    string dynamic_range = 35;
+    string container = 36;
+    DownloaderOption downloader_options = 37;
+}
+
+message Fragment {
+    string url = 1;
+    double duration = 2;
+}
+
+message HttpHeaders {
+
+}
+
+message DownloaderOption {
+    int32 http_chunk_size = 1;
+}

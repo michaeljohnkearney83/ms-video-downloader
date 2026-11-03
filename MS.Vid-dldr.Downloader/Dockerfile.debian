@@ -1,0 +1,38 @@
+# Building Stage
+FROM python:3.12-slim-bookworm AS builder
+
+# Working directory
+WORKDIR /app
+
+# Avoid writing .pyc files and ensure unbuffered stdout/stderr
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Copy the requirements file
+COPY requirements.txt .
+
+# Update package index, install build dependencies, and install Python packages
+# Using set -eux for better error handling
+RUN set -eux && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends gcc libffi-dev && \
+    pip3 install --no-cache-dir --target=packages -r requirements.txt && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Final Stage/Image
+FROM python:3.12-slim-bookworm AS final
+
+# Working directory
+WORKDIR /app
+
+# Copy the Python packages from the builder stage
+COPY --from=builder /app/packages /usr/local/lib/python3.12/site-packages
+
+# Copy the application files into the container
+COPY app/. .
+
+# Set the Python path
+ENV PYTHONPATH=/usr/local/lib/python3.12/site-packages
+
+ENTRYPOINT ["python", "main.py"]

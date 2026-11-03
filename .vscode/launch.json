@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "name": "C#: MS.Vid-dldr.Manager",
+            "type": "dotnet",
+            "request": "launch",
+            "projectPath": "${workspaceFolder}\\MS.Vid-dldr.Manager\\MS.Vid-dldr.Manager.csproj",
+            "launchConfigurationId": "TargetFramework=;https"
+        }
+    ]
+}

@@ -1,0 +1,338 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+import "Protos/ms_vdapi_common_objects.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos.FromConfigure";
+
+package ms_ms_vdapi;
+
+service VdApiCallsForConfigure {
+
+  rpc GetCollectiveVersions (GetCollectiveVersionsRequest) returns (GetCollectiveVersionsResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/getCollectiveVersions/timeout_ms/{timeout_ms}"
+    };
+  }
+
+  rpc GetDistributorUp (GetDistributorUpRequest) returns (GetDistributorUpResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/getDistributorUp/period_minutes/{period_minutes}"
+    };
+  }
+
+  rpc GetYtdlpVersions (GetYtdlpVersionsRequest) returns (GetYtdlpVersionsResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/getYtdlpVersions"
+    };
+  }
+
+  rpc GetDownloadsDuringPeriod (GetDownloadsDuringPeriodRequest) returns (GetDownloadsDuringPeriodResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/period/from/{from}/to/{to}"
+    };
+  }
+
+  rpc GetDistinctErrorsDuringPeriod (GetDistinctErrorsDuringPeriodRequest) returns (GetDistinctErrorsDuringPeriodResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/distinctErrors/period/from/{from}/to/{to}"
+    };
+  }
+
+  rpc GetDownloadSessionTableHack (GetDownloadSessionTableHackRequest) returns (GetDownloadSessionTableHackResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloadSession/id/{id}/tableHack"
+    };
+  }
+
+  rpc GetDownloadSession (GetDownloadSessionRequest) returns (GetDownloadSessionResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloadSession/id/{id}"
+    };
+  }
+
+  rpc GetDownloadSessions (GetDownloadSessionsRequest) returns (GetDownloadSessionsResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloadSessions/take/{take}"
+    };
+  }
+
+  rpc GetDownloads (GetDownloadsRequest) returns (GetDownloadsResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/take/{take}"
+    };
+  }
+
+  rpc GetDownloadsByUsername (GetDownloadsByUsernameRequest) returns (GetDownloadsByUsernameResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/username/{username}/forceId/{forceId}/take/{take}"
+    };
+  }
+
+  rpc GetDownloadsByDeployment (GetDownloadsByDeploymentRequest) returns (GetDownloadsByDeploymentResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/deplNo/{deplNo}/forceId/{forceId}/take/{take}"
+    };
+  }
+
+  rpc GetDownloadsByForce (GetDownloadsByForceRequest) returns (GetDownloadsByForceResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/forceId/{forceId}/take/{take}"
+    };
+  }
+
+  rpc GetDownloadsByClient (GetDownloadsByClientRequest) returns (GetDownloadsByClientResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/client/{client}/take/{take}"
+    };
+  }
+
+  rpc GetDownloadsBySession (GetDownloadsBySessionRequest) returns (GetDownloadsBySessionResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/sessionId/{sessionId}/take/{take}"
+    };
+  }
+
+  rpc GetDownloadStatusDuringPeriod (GetDownloadStatusDuringPeriodRequest) returns (GetDownloadStatusDuringPeriodResponse) {
+    option (google.api.http) = {
+        get: "/v1/configure/downloads/status/period/from/{from}/to/{to}"
+    };
+  }
+}
+
+//GetCollectiveVersions
+message GetCollectiveVersionsRequest {
+    int32 timeout_ms = 1;
+}
+
+message GetCollectiveVersionsResponse {
+    SoftwareVersions software_versions = 1;
+    Feedback feedback = 2;
+}
+
+//GetDistributorUp
+message GetDistributorUpRequest {
+    int32 period_minutes = 1;
+}
+
+message GetDistributorUpResponse {
+    int32 all_status_count = 1;
+    int32 finished_status_count = 2;
+    int32 chances_down_percentage = 3;
+    Feedback feedback = 4;
+}
+
+//GetYtdlpVersions
+message GetYtdlpVersionsRequest {
+}
+
+message GetYtdlpVersionsResponse {
+    string downloader = 1;
+    string git = 2;
+    Feedback feedback = 3;
+}
+
+//GetDownloadsDuringPeriod
+message GetDownloadsDuringPeriodRequest {
+    string from = 1;
+    string to = 2;
+}
+
+message GetDownloadsDuringPeriodResponse {
+    repeated ConfigureDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDistinctErrorsDuringPeriod
+message GetDistinctErrorsDuringPeriodRequest {
+    string from = 1;
+    string to = 2;
+}
+
+message GetDistinctErrorsDuringPeriodResponse {
+    repeated ConfigureError errors = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadSessionTableHack
+message GetDownloadSessionTableHackRequest {
+    string id = 1;
+}
+
+message GetDownloadSessionTableHackResponse {
+    repeated ConfigureTableDownloadSession downloadSessions = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadSession
+message GetDownloadSessionRequest {
+    string id = 1;
+}
+
+message GetDownloadSessionResponse {
+    ConfigureTableDownloadSession downloadSession = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadSessions
+message GetDownloadSessionsRequest {
+    int32 take = 1;
+}
+
+message GetDownloadSessionsResponse {
+    repeated ConfigureTableDownloadSession downloadSessions = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloads
+message GetDownloadsRequest {
+    int32 take = 1;
+}
+
+message GetDownloadsResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadsByUsername
+message GetDownloadsByUsernameRequest {
+    string username = 1;
+    string forceId = 2;
+    int32 take = 3;
+}
+
+message GetDownloadsByUsernameResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadsByDeployment
+message GetDownloadsByDeploymentRequest {
+    string deplNo = 1;
+    string forceId = 2;
+    int32 take = 3;
+}
+
+message GetDownloadsByDeploymentResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadsByForce
+message GetDownloadsByForceRequest {
+    string forceId = 1;
+    int32 take = 2;
+}
+
+message GetDownloadsByForceResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadsByClient
+message GetDownloadsByClientRequest {
+    string client = 1;
+    int32 take = 2;
+}
+
+message GetDownloadsByClientResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadsBySession
+message GetDownloadsBySessionRequest {
+    string sessionId = 1;
+    int32 take = 2;
+}
+
+message GetDownloadsBySessionResponse {
+    repeated ConfigureTableDownload downloads = 1;
+    Feedback feedback = 2;
+}
+
+//GetDownloadStatusDuringPeriod
+message GetDownloadStatusDuringPeriodRequest {
+    string from = 1;
+    string to = 2;
+}
+
+message GetDownloadStatusDuringPeriodResponse {
+    repeated DownloadStatusCounts DownloadDailyStatusCounts = 1;
+    Feedback feedback = 2;
+}
+
+//OBJECTS
+message ConfigureTableDownloadSession {
+    string id = 1;
+    string username = 2;
+    string force_id = 3;
+    string client = 4;
+    string deployment_no = 5;
+    google.protobuf.Timestamp requested_on = 6;
+    google.protobuf.Timestamp last_activity = 7;
+    google.protobuf.Timestamp disabled = 8;
+}
+
+message ConfigureTableDownload {
+    int32 id = 1;
+    string session_id = 2;
+    DownloadRequested requested = 7;
+    VideoAnalysis video_analysis = 8;
+    google.protobuf.Timestamp last_activity = 9;
+    string status = 10;
+    string filename = 11;
+    DownloadProgress progress = 12;
+    string error_message = 13;
+    int32 retry_on_errored_attempt_no = 14;
+    int32 retry_on_errored_max_count = 15;
+    int32 analysesd = 16;
+    Feedback feedback = 17;
+}
+
+message ConfigureDownload {
+    int32 id = 1;
+    string session_id = 2;
+    string force_id = 3;
+    string username = 4;
+    string client = 5;
+    string deployment_no = 6;
+    DownloadRequested requested = 7;
+    VideoAnalysis video_analysis = 8;
+    google.protobuf.Timestamp last_activity = 9;
+    string status = 10;
+    string filename = 11;
+    DownloadProgress progress = 12;
+    string error_message = 13;
+    Feedback feedback = 14;
+}
+
+message ConfigureError {
+    int32 id = 1;
+    google.protobuf.Timestamp last_activity = 2;
+    string error_message = 3;
+    Feedback feedback = 4;
+}
+
+message ConfigureDownloadLite {
+    int32 id = 1;
+    DownloadRequested requested = 2;
+    google.protobuf.Timestamp last_activity = 3;
+    string status = 4;
+}
+
+message DownloadStatusCounts {
+    string requested_on = 1;
+    int32 none = 2;
+    int32 requested = 3;
+    int32 queued = 4;
+    int32 analysis = 5;
+    int32 downloading = 6;
+    int32 finished = 7;
+    int32 distributed_lookup = 8;
+    int32 distributed = 9;
+    int32 deleted = 10;
+    int32 errored = 11;
+    int32 retry = 12;
+}

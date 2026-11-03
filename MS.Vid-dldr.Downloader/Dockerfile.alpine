@@ -1,0 +1,49 @@
+# Building Stage
+FROM python:3.12.7-alpine3.20 AS builder
+
+# Create  virtual enviroment
+RUN python3 -m venv /opt/venv && mkdir -p /opt/venv/etc/vd_downloader/app
+
+# Working directory
+WORKDIR /opt/venv/
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Copy the requirements file
+COPY requirements.txt .
+
+# Update package index, install build dependencies, and install Python packages
+# Using set -eux for better error handling
+RUN set -eux && \
+    apk update && \
+    apk add --no-cache gcc musl-dev libffi-dev && \
+    ./bin/pip install --no-cache-dir -r requirements.txt && \
+    apk del gcc musl-dev
+
+# Final Stage/Image
+FROM python:3.12.7-alpine3.20 AS final
+
+# Copy the Python packages from the builder stage
+COPY --from=builder /opt/venv/ /opt/venv/
+
+# Working directory
+WORKDIR /opt/venv/etc/vd_downloader/app
+# Copy the application files into the container
+COPY app/. .
+# Set the Python path
+ENV PATH="/opt/venv/bin:/usr/local/bin:$PATH"
+
+# Deno install
+RUN apk add --no-cache deno
+
+# Create a non-root user and group for FFMPEG
+RUN addgroup -S appgroup && \
+    adduser -S appuser -G appgroup && \
+    chown -R appuser:appgroup /opt/venv/ && \
+    apk add --no-cache ffmpeg
+
+# Switch to the non-root user
+USER appuser.vd/        
+
+ENTRYPOINT ["/bin/sh", "-c", ". /opt/venv/bin/activate && deno --version && python main.py"]

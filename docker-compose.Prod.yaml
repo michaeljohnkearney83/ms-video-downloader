@@ -1,0 +1,88 @@
+#docker compose --env-file .env.prod -f docker-compose.Prod.yaml up --build -d
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13.3-management-alpine
+    container_name: rMq
+    hostname: rabbitmq
+    ports:
+      - 5672:5672
+      - 15672:15672
+    restart: unless-stopped
+
+  db:
+    image: postgres:16.3-alpine3.20
+    container_name: manager-db
+    hostname: db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=DownloadsDb
+    ports:
+      - "5433:5432"
+    volumes:
+      - /mnt/postgresql/data:/var/lib/postgresql/data
+    depends_on:
+      - "rabbitmq"
+    restart: unless-stopped
+
+  manager:
+    image: iissupport/iis-vd:manager-aspnet7.0.20-jammy-build.11062025-1645
+    build:
+      context: ./MS.Vid-dldr.Manager
+      dockerfile: Dockerfile.ubuntu
+    container_name: manager-api
+    hostname: manager
+    environment:
+      - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=db;Port=5432;Database=DownloadsDb;Pooling=true;
+      - Kestrel__Endpoints__gRPC__Url=http://*:5000
+      - Kestrel__Endpoints__gRPC__Protocols=Http2
+      - Kestrel__Endpoints__REST__Url=http://*:8000
+      - Kestrel__Endpoints__REST__Protocols=Http1
+    ports:
+      - "8000:8000"
+      - "5000:5000"
+    depends_on:
+      - "db"
+    restart: unless-stopped
+
+  downloader:
+    image: iissupport/iis-vd:downloader-python3.12.5-alpine3.20-yt-dlp2025.06.09-build.11062025-1645
+    build:
+      context: ./MS.Vid-dldr.Downloader
+      dockerfile: Dockerfile.alpine
+    container_name: downloader-srvs
+    hostname: downloader
+    volumes:
+      - ${HOME_DRIVE_PATH}
+    ports:
+      - "7105:7105"
+    depends_on:
+      - "manager"
+    restart: unless-stopped
+
+  updater:
+    image: iissupport/iis-vd:downloadupdater-aspnet7.0.20-ubuntu.chiseled-build.11062025-1645
+    build:
+      context: ./MS.Vid-dldr.DownloadUpdater
+      dockerfile: Dockerfile.ubuntu
+    container_name: updater-srvs
+    hostname: updater
+    depends_on:
+      - "downloader"
+    restart: unless-stopped
+
+  ytdlp:
+    image: iissupport/iis-vd:ytdlp-aspnet7.0.20-ubuntu.chiseled-build.11062025-1645
+    build:
+      context: ./MS.Vid-dldr.Ytdlp
+      dockerfile: Dockerfile.ubuntu
+    container_name: ms_vid-dldr-ytdlp-srv
+    hostname: ytdlp
+    depends_on:
+      - "manager-api"
+    restart: unless-stopped
+
+networks:
+  vdNetwork:
+    external: true

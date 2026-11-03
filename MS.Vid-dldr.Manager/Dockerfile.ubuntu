@@ -1,0 +1,28 @@
+# Building Stage used Ubuntu Chiseled
+FROM mcr.microsoft.com/dotnet/sdk:7.0.410-jammy AS build
+# Working directory
+WORKDIR /app
+
+# copy csproj and restore as distinct layers
+COPY *.csproj .
+RUN dotnet restore MS.Vid-dldr.Manager.csproj
+
+# copy and publish app and libraries
+COPY . .
+RUN dotnet publish MS.Vid-dldr.Manager.csproj -c Release -o out
+
+# Final Stage/Image
+FROM mcr.microsoft.com/dotnet/aspnet:7.0.20-jammy AS final
+# Working directory
+WORKDIR /app
+
+# Copy the application from the build stage
+COPY --from=build /app/out .
+# Add a non-root user and set appropriate permissions
+RUN groupadd -r appgroup && useradd -r -g appgroup appuser && \
+    chown -R appuser:appgroup /app
+
+# Switch to the new user
+USER appuser
+
+ENTRYPOINT ["dotnet", "MS.Vid-dldr.Manager.dll"]

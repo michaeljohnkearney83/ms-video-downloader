@@ -1,0 +1,108 @@
+#docker compose --env-file .env.dev -f docker-compose.Dev.yaml up --build -d   
+name: ms_vid-dldr
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.12.13-management
+    container_name: ms_vid-dldr-rMq
+    hostname: rabbitmq
+    ports:
+      - 5672:5672
+      - 15672:15672
+    restart: unless-stopped
+
+  manager-api:
+    image: docker.io/library/ms-vid-dldr-manager
+    build:
+      context: ./MS.Vid-dldr.Manager
+      dockerfile: Dockerfile.ubuntu
+    container_name: ms_vid-dldr-manager-api
+    hostname: manager-api
+    volumes:
+      - /var/run/docker.sock.sock:/var/run/docker.sock
+    environment:
+      - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
+      - Kestrel__Endpoints__gRPC__Url=http://*:5000
+      - Kestrel__Endpoints__gRPC__Protocols=Http2
+      - Kestrel__Endpoints__REST__Url=http://*:8000
+      - Kestrel__Endpoints__REST__Protocols=Http1
+      - ASPNETCORE_ENVIRONMENT=Development
+    ports:
+      - "8000:8000"
+      - "5000:5000"
+    depends_on:
+      - "manager-db"
+    restart: unless-stopped
+    
+  manager-db:
+    image: postgres:latest
+    container_name: ms_vid-dldr-manager-db
+    hostname: manager-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=MS.VdDownloader
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    depends_on:
+      - "rabbitmq"
+    restart: unless-stopped
+
+  downloader:
+    image: docker.io/library/ms-vid-dldr-downloader
+    build:
+      context: ./MS.Vid-dldr.Downloader
+      dockerfile: Dockerfile.alpine
+    container_name: ms_vid-dldr-downloader-srv
+    hostname: downloader
+    volumes:
+      - ${HOME_DRIVE_PATH}
+    #ports:
+    #  - "7105:7105"
+    #deploy:
+    #  replicas: 0
+    depends_on:
+      - "manager-api"
+    restart: unless-stopped
+
+    environment:
+      - IS_DEBUG_MODE=${IS_DEBUG_MODE}
+      - QUEUE_REQUEST_DOWNLOAD=${QUEUE_REQUEST_DOWNLOAD}
+      - QUEUE_DOWNLOAD_UPDATE=${QUEUE_DOWNLOAD_UPDATE}
+      - CHANNEL_HOST=${CHANNEL_HOST}
+      - CHANNEL_PORT_NUMBER=${CHANNEL_PORT_NUMBER}
+      - DEFAULT_DOWNLOAD_EXT=${DEFAULT_DOWNLOAD_EXT}
+      - DEFAULT_RETRY_COUNT=${DEFAULT_RETRY_COUNT}
+      - DEFAULT_TIMEOUT_SECONDS=${DEFAULT_TIMEOUT_SECONDS}
+      - DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS=${DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS}
+  
+  updater:
+    image: docker.io/library/ms-vid-dldr-downloadupdater
+    build:
+      context: ./MS.Vid-dldr.DownloadUpdater
+      dockerfile: Dockerfile.ubuntu
+    container_name: ms_vid-dldr-updater-srv
+    hostname: updater
+    depends_on:
+      - "downloader"
+    restart: unless-stopped
+
+  ytdlp:
+    image: docker.io/library/ms-vid-dldr-ytdlp
+    build:
+      context: ./MS.Vid-dldr.Ytdlp
+      dockerfile: Dockerfile.ubuntu
+    container_name: ms_vid-dldr-ytdlp-srv
+    hostname: ytdlp
+    depends_on:
+      - "manager-api"
+    restart: unless-stopped
+
+volumes:
+  db-data:
+
+networks:
+  vdNetwork:
+    external: true

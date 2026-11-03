@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "google/api/annotations.proto";
+import "Protos/ms_vdapi_common_objects.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos";
+
+package ms_ms_vdapi;
+
+service VdApiCallsForYtdlp {
+ 
+  //UPDATE - MS.Vid_dldr.Ytdlp
+  rpc SetYtdlpVersion(SetYtdlpVersionRequest) returns (SetYtdlpVersionResponse)  {
+    option (google.api.http) = {
+        post: "/v1/ytdlp/version/{version}"
+        body: "*"
+    };
+  }
+}
+
+//UPDATE - MS.Vid_dldr.Ytdlp
+message SetYtdlpVersionRequest {
+    string version = 1;
+}
+
+message SetYtdlpVersionResponse {
+    Feedback feedback = 3;
+}

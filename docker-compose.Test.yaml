@@ -1,0 +1,62 @@
+version: '3.9'
+
+services:
+  germany-tor-container:
+    image: docker.io/library/ms-vid-dldr-manager
+    build:
+      context: ./MS.Vid-dldr.Manager
+      dockerfile: Dockerfile.ubuntu
+    container_name: germany-tor-container
+    hostname: manager-api
+    environment:
+      - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
+      - Kestrel__Endpoints__REST__Url=http://*:8122
+      - Kestrel__Endpoints__REST__Protocols=Http1
+    ports:
+      - "8122:8122"
+    restart: unless-stopped
+
+  #holland-tor-container:
+  #  image: docker.io/library/ms-vid-dldr-manager
+  #  build:
+  #    context: ./MS.Vid-dldr.Manager
+  #    dockerfile: Dockerfile.ubuntu
+  #  container_name: holland-tor-container
+  #  hostname: manager-api
+  #  environment:
+  #    - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
+  #    - Kestrel__Endpoints__REST__Url=http://*:8126
+  #    - Kestrel__Endpoints__REST__Protocols=Http1
+  #  ports:
+  #    - "8126:8126"
+  #  restart: unless-stopped
+#
+  #kazakhstan-tor-container:
+  #  image: docker.io/library/ms-vid-dldr-manager
+  #  build:
+  #    context: ./MS.Vid-dldr.Manager
+  #    dockerfile: Dockerfile.ubuntu
+  #  container_name: kazakhstan-tor-container
+  #  hostname: manager-api
+  #  environment:
+  #    - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
+  #    - Kestrel__Endpoints__REST__Url=http://*:8126
+  #    - Kestrel__Endpoints__REST__Protocols=Http1
+  #  ports:
+  #    - "8132:8132"
+  #  restart: unless-stopped
+#
+  #use-tor-container:
+  #  image: docker.io/library/ms-vid-dldr-manager
+  #  build:
+  #    context: ./MS.Vid-dldr.Manager
+  #    dockerfile: Dockerfile.ubuntu
+  #  container_name: usa-tor-container
+  #  hostname: manager-api
+  #  environment:
+  #    - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
+  #    - Kestrel__Endpoints__REST__Url=http://*:8126
+  #    - Kestrel__Endpoints__REST__Protocols=Http1
+  #  ports:
+  #    - "8134:8134"
+  #  restart: unless-stopped

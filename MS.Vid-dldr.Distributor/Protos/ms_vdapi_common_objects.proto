@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+import "google/protobuf/wrappers.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos.Common";
+
+package ms_ms_vdapi;
+
+service  VdApiCommonObjects {
+  
+    rpc NotForUse_RegisterFeedback (Feedback) returns (Feedback)  {
+  }
+}
+
+message Feedback {
+    string information_message = 1;
+    string warning_message = 2;
+    string error_message = 3;
+    string exception_json_string = 4;
+    string request_json_string = 5;
+}

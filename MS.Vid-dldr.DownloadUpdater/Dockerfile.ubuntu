@@ -1,0 +1,29 @@
+# Building Stage used Ubuntu Chiseled
+FROM mcr.microsoft.com/dotnet/sdk:7.0.410-jammy AS build
+WORKDIR /app
+
+# copy csproj and restore as distinct layers
+COPY *.csproj .
+RUN dotnet restore MS.Vid-dldr.DownloadUpdater.csproj
+
+# copy and publish app and libraries
+COPY . .
+RUN dotnet publish MS.Vid-dldr.DownloadUpdater.csproj -c Release
+
+# Final Stage/Image
+FROM mcr.microsoft.com/dotnet/aspnet:7.0.20-jammy AS final
+
+# Working directory
+WORKDIR /app
+
+# Copy the application from the build stage
+COPY --from=build /app/bin/Release/net7.0/publish .
+
+# Add a non-root user and set appropriate permissions
+RUN groupadd -r app && useradd -r -g app app && \
+    chown -R app:app /app
+
+# Switch to the new user
+USER app
+
+ENTRYPOINT ["dotnet", "MS.Vid-dldr.DownloadUpdater.dll"]

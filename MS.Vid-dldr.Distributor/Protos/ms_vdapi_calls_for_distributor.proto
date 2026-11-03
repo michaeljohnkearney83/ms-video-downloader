@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+import "Protos/ms_vdapi_common_objects.proto";
+
+option csharp_namespace = "MS.Vid_dldr.Manager.Protos";
+
+package ms_ms_vdapi;
+
+service VdApiCallsForDistributor {
+    
+  //UPDATE - MS.Vid_dldr.Distributor
+  rpc GetRequestedDownloadFileInformation(GetRequestedDownloadFileInformationRequest) returns (GetRequestedDownloadFileInformationResponse);
+  rpc UpdateDownloadProgressDistributed(UpdateDownloadProgressDistributedRequest) returns (UpdateDownloadProgressDistributedResponse);
+  rpc UpdateDownloadProgressDeleted(UpdateDownloadProgressDeletedRequest) returns (UpdateDownloadProgressDeletedResponse);
+}
+
+//UPDATE - MS.Vid_dldr.Distributor
+message GetRequestedDownloadFileInformationRequest {
+    string username = 1;
+    string client_id = 2;
+}
+
+message GetRequestedDownloadFileInformationResponse {
+    string requested_download_folder = 1;
+    string requested_download_name = 2;
+    Feedback feedback = 3;
+}
+
+message UpdateDownloadProgressDistributedRequest {
+    string client_id = 1;
+}
+
+message UpdateDownloadProgressDistributedResponse {
+    Feedback feedback = 1;
+}
+
+message UpdateDownloadProgressDeletedRequest {
+    string client_id = 1;
+    string reason = 2;
+}
+
+message UpdateDownloadProgressDeletedResponse {
+    Feedback feedback = 1;
+}
