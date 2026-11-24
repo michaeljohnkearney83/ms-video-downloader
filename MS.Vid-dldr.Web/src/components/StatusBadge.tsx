@@ -9,6 +9,8 @@ const toneByStatus: Record<string, string> = {
   RETRY: 'warning',
   ERRORED: 'error',
   DELETED: 'muted',
+  PAUSED: 'neutral',
+  CANCELLED: 'muted',
   NONE: 'muted',
 }
 

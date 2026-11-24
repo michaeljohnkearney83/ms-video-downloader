@@ -103,6 +103,18 @@ describe('createManagerClient', () => {
     )
   })
 
+  it('posts pause / resume / cancel to the download', async () => {
+    const fetchMock = fetchReturning(200, { clientId: 'a b', status: 'PAUSED' })
+
+    const result = await createManagerClient('', fetchMock).downloadAction('a b', 'pause')
+
+    expect(result.status).toBe('PAUSED')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/v1/client/download/a%20b/pause')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(init.body)).toEqual({})
+  })
+
   it('reports a network failure', async () => {
     const client = createManagerClient('', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
 

@@ -12,6 +12,7 @@ public interface IAppSettings
     string QueueDownloadUpdate { get; set; }
     int ChannelManagementPort { get; set; }
     string DownloaderHealthUrl { get; set; }
+    string ExchangeDownloadControl { get; set; }
     int WaitForYtdlpToFinishRetryMaxCount { get; set; }
     int WaitForYtdlpToFinishRetryWait { get; set; }
     int MaxFilepathLength { get; set; }

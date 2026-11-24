@@ -47,6 +47,9 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
                 throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Wrong progress status {request.Status} for Analysis method"));
 
             var downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.Id == request.Id);
+            // Paused / cancelled by the user: late progress from the Downloader must not undo that.
+            if (downloadEnt != null && DownloadActions.IsStoppedByUser(downloadEnt.Status))
+                downloadEnt = null;
             if (downloadEnt != null)
             {
                 downloadEnt.Analysed = request.LastActivity.ToDateTime();
@@ -90,6 +93,9 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
                 throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Wrong progress status {request.Status} for Downloading method"));
 
             var downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.Id == request.Id);
+            // Paused / cancelled by the user: late progress from the Downloader must not undo that.
+            if (downloadEnt != null && DownloadActions.IsStoppedByUser(downloadEnt.Status))
+                downloadEnt = null;
             if (downloadEnt != null)
             {
                 downloadEnt.LastActivity = request.LastActivity.ToDateTime();
@@ -123,6 +129,9 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
                 throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Wrong progress status {request.Status} for Finished method"));
 
             var downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.Id == request.Id);
+            // Paused / cancelled by the user: late progress from the Downloader must not undo that.
+            if (downloadEnt != null && DownloadActions.IsStoppedByUser(downloadEnt.Status))
+                downloadEnt = null;
             if (downloadEnt != null)
             {
                 if (downloadEnt.Status != Constants.DownloadStatusTypeFinished
@@ -167,6 +176,9 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
                 throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"Wrong progress status {request.Status} for Errored method"));
 
             var downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.Id == request.Id);
+            // Paused / cancelled by the user: late progress from the Downloader must not undo that.
+            if (downloadEnt != null && DownloadActions.IsStoppedByUser(downloadEnt.Status))
+                downloadEnt = null;
             if (downloadEnt != null)
             {
                 var doRetryOnErrored = downloadEnt.RetryOnErroredAttemptNo < downloadEnt.RetryOnErroredMaxCount;

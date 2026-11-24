@@ -12,6 +12,7 @@ export function fakeClient(overrides: Partial<ManagerClient> = {}): ManagerClien
     getDownloadsBySession: vi.fn().mockResolvedValue({ downloads: [] }),
     requestDownload: vi.fn().mockResolvedValue({ clientId: 'client-1' }),
     extractFormats: vi.fn().mockResolvedValue({ extractInfo: { formats: [] } }),
+    downloadAction: vi.fn().mockResolvedValue({ clientId: 'a', status: 'PAUSED' }),
     ...overrides,
   }
 }

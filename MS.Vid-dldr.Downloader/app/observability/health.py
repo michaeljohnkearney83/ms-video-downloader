@@ -47,6 +47,7 @@ class WorkerHealth:
         self.job = None
         self.jobs_succeeded = 0
         self.jobs_failed = 0
+        self.jobs_stopped = 0
         self.last_success_at = None
         self.last_failure_at = None
         self.last_failure = None
@@ -61,7 +62,11 @@ class WorkerHealth:
         now = self._clock()
         with self._lock:
             self.job = {"type": message_type, "managerId": manager_id, "clientId": client_id,
-                        "startedAt": now, "lastActivityAt": now, "failed": False, "error": None}
+                        "startedAt": now, "lastActivityAt": now, "failed": False, "error": None, "stopped": None}
+
+    def current_manager_id(self):
+        with self._lock:
+            return self.job["managerId"] if self.job else None
 
     def touch(self):
         """Progress was made (yt-dlp progress hook)."""
@@ -76,13 +81,21 @@ class WorkerHealth:
                 self.job["failed"] = True
                 self.job["error"] = str(message)
 
+    def job_stopped(self, action):
+        """The user paused or cancelled the current job: neither a success nor a failure."""
+        with self._lock:
+            if self.job:
+                self.job["stopped"] = action
+
     def job_finished(self):
         now = self._clock()
         with self._lock:
             job, self.job = self.job, None
             if not job:
                 return
-            if job["failed"]:
+            if job["stopped"]:
+                self.jobs_stopped += 1
+            elif job["failed"]:
                 self.jobs_failed += 1
                 self.last_failure_at = now
                 self.last_failure = job["error"]
@@ -105,6 +118,7 @@ class WorkerHealth:
             snapshot = {
                 "jobsSucceeded": self.jobs_succeeded,
                 "jobsFailed": self.jobs_failed,
+                "jobsStopped": self.jobs_stopped,
                 "lastSuccessSecondsAgo": None if self.last_success_at is None else round(now - self.last_success_at),
                 "lastFailureSecondsAgo": None if self.last_failure_at is None else round(now - self.last_failure_at),
                 "lastFailure": self.last_failure,

@@ -28,6 +28,9 @@ RUN set -eux && \
 
 # Final Stage/Image
 FROM python:3.12.7-alpine3.20 AS final
+# Unbuffered output in the running image too, so `docker logs` shows lines as they happen (it was only set in
+# the build stage, and print() from the worker threads only appeared when the buffer filled).
+ENV PYTHONUNBUFFERED=1
 
 # Copy the Python packages from the builder stage
 COPY --from=builder /opt/venv/ /opt/venv/

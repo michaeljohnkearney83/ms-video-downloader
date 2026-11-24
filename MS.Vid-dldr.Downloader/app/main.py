@@ -8,6 +8,7 @@ import yt_dlp.version
 import producer as dlUpdates
 from observability import telemetry
 from observability import health
+import control
 from opentelemetry import trace
 import pika
 import format as f
@@ -29,6 +30,9 @@ global _timeoutSeconds
 global _downloadStalledTimeoutSeconds
 global _progressHookLastPercentage
 global _progressHookLastPercentageFirstDate
+
+# True when the Manager resumes a paused download: yt-dlp continues the partial file instead of overwriting it.
+_resume = False
 
 class MyLogger:
     def debug(self, msg):
@@ -79,6 +83,7 @@ def progressHooks(msg):
     #h.printLog(f"main.progressHooks(msg: {msg})")
 
     health.worker.touch()
+    stopIfRequested()
 
     status = getProgressValue(msg, 'status')
 
@@ -117,6 +122,27 @@ def progressHooks(msg):
     
     dlUpdates.Send(appsettings.QueueDownloadUpdate, json.dumps(progress), appsettings.ChannelHost, appsettings.ChannelPortNumber)
     
+def stopIfRequested():
+    """Raises StopRequested when the Manager asked to pause or cancel this download."""
+    action = control.requests.take(_managerId)
+    if action:
+        raise control.StopRequested(action, _managerId)
+
+def stopped(action, when):
+    """The job stopped for a user request: no ERRORED update (the Manager already set PAUSED / CANCELLED)."""
+    h.printLog(f"{action} download {_managerId} {when}")
+    trace.get_current_span().set_attribute("vd.control.action", action)
+    health.worker.job_stopped(action)
+    if action == control.CANCEL:
+        clearCancelledFiles("h-drive", _downloadId)
+
+def onControlRequest(managerId, action, downloadId):
+    """Listener thread. A paused download has no running job to clean up, so cancelling it deletes its partial file
+    here; a running job is stopped (and cleaned up) by its own progress hook."""
+    if action == control.CANCEL and downloadId and health.worker.current_manager_id() != managerId:
+        clearCancelledFiles("h-drive", downloadId)
+        h.printLog(f"Deleted the partial files of cancelled download {managerId}")
+
 def postProcessorHooks(msg):
     h.printLog(f"main.postProcessorHooks: {msg['status']}, {msg['postprocessor']}")
 
@@ -147,10 +173,14 @@ def download():
         try:
             if(analyse()):
                 resetDownloadStalled()
+                stopIfRequested()  # paused / cancelled while it was being analysed
 
                 errorCode = ydl.download(_url)
                 # errorMsg must be a string: the updater deserialises it into a C# string.
                 if errorCode: sendError(f"yt-dlp download failed with error code {errorCode}")
+        except control.StopRequested as stop:
+            # Pause keeps the .part file for resume; cancel deletes it.
+            stopped(stop.action, "while downloading")
         except Exception as e:
             errorMessage = repr(e)
 
@@ -257,6 +287,13 @@ def handle_message(channel, method_frame, header_frame, body):
 
             setGlobals(request)
             health.worker.job_started(request['messageType'], _managerId, None if _downloadId == -1 else str(_downloadId))
+            if _resume:
+                control.requests.clear(_managerId)
+            else:
+                action = control.requests.take(_managerId)
+                if action:
+                    stopped(action, "before it started")
+                    return
             span.set_attribute(telemetry.DOWNLOAD_ID, _managerId)
             if _downloadId != -1: span.set_attribute(telemetry.CLIENT_ID, str(_downloadId))
 
@@ -286,6 +323,8 @@ def setGlobals(request):
     _managerId = request['managerId'] if not (request.get('managerId') is None) else -1
     global _downloadId
     _downloadId = request['downloadId'] if not (request.get('downloadId') is None) else -1
+    global _resume
+    _resume = bool(request.get('resume'))
     global _url
     _url = request['url'] if not (request.get('url') is None) else -1
     global _downloadlName
@@ -316,7 +355,9 @@ def getYtdlpOptions():
         'verbose': True,
         'outtmpl': f"h-drive/{_downloadId}.%(ext)s",
         'cachedir': False,
-        'overwrites': True,
+        # A resumed download continues its .part file; anything else starts clean (overwrites implies no-continue).
+        'overwrites': not _resume,
+        'continuedl': _resume,
         'retries': _retryCount,
         'socket_timeout': _timeoutSeconds,
     }
@@ -379,7 +420,7 @@ def clearCancelledFiles(filepath, filename):
     #h.printLog(f"main.clearCancelledFiles(filename: {filename})")
 
     for fname in os.listdir(filepath):
-        if fname.startswith(filename):
+        if fname.startswith(str(filename)):
             os.remove(os.path.join(filepath, fname))
 
 
@@ -391,6 +432,8 @@ def main():
     # /health on HEALTH_PORT (8081) and the stuck-job watchdog. A stuck job is reported as ERRORED (so the Manager
     # retries it) before the process exits and Docker restarts it.
     health.worker = health.setup(h.getSoftwareVersion(), yt_dlp.version.__version__, on_stuck=sendError)
+    # Pause / cancel requests from the Manager, on a background thread.
+    control.start_listener(appsettings.ChannelHost, appsettings.ChannelPortNumber, h.printLog, on_request=onControlRequest)
 
     connection_parameters = pika.ConnectionParameters(appsettings.ChannelHost, appsettings.ChannelPortNumber, frame_max = 131072)
     connection = pika.BlockingConnection(connection_parameters)

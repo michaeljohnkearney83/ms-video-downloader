@@ -15,4 +15,13 @@ public class FakeDownloadRequestPublisher : IDownloadRequestPublisher
         Sent.Add(message);
         return Task.CompletedTask;
     }
+
+    public List<DownloadControlDto> Controls { get; } = new();
+
+    public Task SendControlAsync(DownloadControlDto message, CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnSend != null) throw ThrowOnSend;
+        Controls.Add(message);
+        return Task.CompletedTask;
+    }
 }

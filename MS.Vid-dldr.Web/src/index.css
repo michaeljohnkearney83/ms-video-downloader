@@ -404,3 +404,19 @@ td .url {
   min-width: 48px;
   text-align: right;
 }
+
+.row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.row-actions button {
+  padding: 3px 10px;
+  font-size: 0.8rem;
+}
+
+button.danger {
+  border-color: var(--error);
+  color: var(--error);
+}

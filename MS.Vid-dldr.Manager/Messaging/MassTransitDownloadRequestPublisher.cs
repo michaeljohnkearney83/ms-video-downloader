@@ -13,6 +13,7 @@ public class MassTransitDownloadRequestPublisher : IDownloadRequestPublisher
     private readonly ISendEndpointProvider _sendEndpointProvider;
     private readonly ILogger<MassTransitDownloadRequestPublisher> _logger;
     private readonly Uri _queueAddress;
+    private readonly Uri _controlAddress;
 
     public MassTransitDownloadRequestPublisher(ISendEndpointProvider sendEndpointProvider, IAppSettings appSettings,
         ILogger<MassTransitDownloadRequestPublisher> logger)
@@ -20,6 +21,7 @@ public class MassTransitDownloadRequestPublisher : IDownloadRequestPublisher
         _sendEndpointProvider = sendEndpointProvider;
         _logger = logger;
         _queueAddress = MessagingSetup.GetQueueAddress(appSettings.QueueRequestDownload);
+        _controlAddress = MessagingSetup.GetControlExchangeAddress(appSettings.ExchangeDownloadControl);
     }
 
     public async Task SendAsync<T>(T message, CancellationToken cancellationToken = default) where T : class, IMessageDto
@@ -27,6 +29,14 @@ public class MassTransitDownloadRequestPublisher : IDownloadRequestPublisher
         _logger.LogInformation("Sending {MessageType} to {QueueAddress}", message.MessageType, _queueAddress);
 
         var endpoint = await _sendEndpointProvider.GetSendEndpoint(_queueAddress);
+        await endpoint.Send(message, context => AddTraceContext(context.Headers), cancellationToken);
+    }
+
+    public async Task SendControlAsync(DownloadControlDto message, CancellationToken cancellationToken = default)
+    {
+        _logger.LogInformation("Sending {Action} for download {DownloadId} to {ControlAddress}", message.Action, message.Id, _controlAddress);
+
+        var endpoint = await _sendEndpointProvider.GetSendEndpoint(_controlAddress);
         await endpoint.Send(message, context => AddTraceContext(context.Headers), cancellationToken);
     }
 

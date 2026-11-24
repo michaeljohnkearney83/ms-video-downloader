@@ -15,6 +15,7 @@ public class AppSettings : IAppSettings
         ChannelManagementPort = int.TryParse(configuration["AppSettings:ChannelManagementPort"], out var managementPort)
             ? managementPort : 15672;
         DownloaderHealthUrl = configuration["AppSettings:DownloaderHealthUrl"] ?? "";
+        ExchangeDownloadControl = configuration["AppSettings:ExchangeDownloadControl"] ?? "ms_vd_x_downloadControl";
         WaitForYtdlpToFinishRetryMaxCount = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryMaxCount"]);
         WaitForYtdlpToFinishRetryWait = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryWait"]);
         MaxFilepathLength = Convert.ToInt32(configuration["AppSettings:MaxFilepathLength"]);
@@ -35,6 +36,8 @@ public class AppSettings : IAppSettings
     public int ChannelManagementPort { get; set; }
     /// <summary>The Python Downloader's /health (e.g. http://downloader:8081/health). Empty = queue check only.</summary>
     public string DownloaderHealthUrl { get; set; }
+    /// <summary>Fanout exchange for pause / cancel messages to every Downloader.</summary>
+    public string ExchangeDownloadControl { get; set; }
     public int WaitForYtdlpToFinishRetryMaxCount { get; set; }
     public int WaitForYtdlpToFinishRetryWait { get; set; }
     public int MaxFilepathLength { get; set; }

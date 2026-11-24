@@ -6,4 +6,7 @@ namespace MS.Vid_dldr.Manager.Messaging;
 public interface IDownloadRequestPublisher
 {
     Task SendAsync<T>(T message, CancellationToken cancellationToken = default) where T : class, IMessageDto;
+
+    /// <summary>Publishes a pause / cancel to every Downloader (fanout exchange).</summary>
+    Task SendControlAsync(DownloadControlDto message, CancellationToken cancellationToken = default);
 }

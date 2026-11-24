@@ -1,4 +1,6 @@
 import type {
+  DownloadAction,
+  DownloadActionResponse,
   ExtractFormatsRequest,
   ExtractFormatsResponse,
   GetDownloadsBySessionIdResponse,
@@ -52,6 +54,8 @@ export interface ManagerClient {
   getDownloadsBySession(sessionId: string): Promise<GetDownloadsBySessionIdResponse>
   requestDownload(request: RequestDownloadRequest): Promise<RequestDownloadResponse>
   extractFormats(request: ExtractFormatsRequest): Promise<ExtractFormatsResponse>
+  /** POST /v1/client/download/{clientId}/{pause|resume|cancel}. Throws with the Manager's reason when not allowed. */
+  downloadAction(clientId: string, action: DownloadAction): Promise<DownloadActionResponse>
 }
 
 const segment = (value: string) => encodeURIComponent(value.trim())
@@ -132,5 +136,7 @@ export function createManagerClient(baseUrl = '', fetchImpl: typeof fetch = (...
       send<GetDownloadsBySessionIdResponse>(`/v1/client/downloads/${segment(sessionId)}`),
     requestDownload: (request) => post<RequestDownloadResponse>('/v1/client/download', request),
     extractFormats: (request) => post<ExtractFormatsResponse>('/v1/client/download/extractInfo/formats', request),
+    downloadAction: (clientId, action) =>
+      post<DownloadActionResponse>(`/v1/client/download/${segment(clientId)}/${action}`, {}),
   }
 }

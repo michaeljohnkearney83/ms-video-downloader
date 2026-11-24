@@ -97,6 +97,16 @@ export interface IsServiceUpResponse {
   feedback?: Feedback
 }
 
+/** pause: stop and keep the partial file; resume: continue it; cancel: stop and delete it. */
+export type DownloadAction = 'pause' | 'resume' | 'cancel'
+
+export interface DownloadActionResponse {
+  clientId?: string
+  /** The status after the action (PAUSED, QUEUED, CANCELLED), or the current one when it wasn't allowed. */
+  status?: string
+  feedback?: Feedback
+}
+
 /** The Manager's /health/ready report (ASP.NET Core health checks). HTTP 503 when Unhealthy, with the same body. */
 export type HealthStatus = 'Healthy' | 'Degraded' | 'Unhealthy'
 
@@ -128,6 +138,8 @@ export const DownloadStatuses = [
   'DELETED',
   'ERRORED',
   'RETRY',
+  'PAUSED',
+  'CANCELLED',
 ] as const
 
 export type DownloadStatus = (typeof DownloadStatuses)[number]

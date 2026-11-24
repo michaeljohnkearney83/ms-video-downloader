@@ -84,6 +84,7 @@ on Windows file locking and fails on Linux (it did before the .NET 11 upgrade to
 | Hand-written mappers | `ConfigureVdMapper.Map` (download list, defaults for empty fields), `ClientVdMapper.Map` (formats, fragments, null formats) |
 | MassTransit messaging | DOWNLOAD / ANALYSIS / EXTRACT_INFO / VERSION messages go through the real publisher on the in-memory transport and arrive as the same raw JSON as `DTO.ToString()` (nulls kept); queue address is non-durable |
 | `RetryAnalysisDownloadAsync` | sends an ANALYSIS request marked `isRetry`; returns `false` when the send fails |
+| Pause / resume / cancel | allowed transitions per status (queued or running: pause and cancel; paused: resume and cancel; finished or gone: nothing), the reason when not allowed, progress ignored only for PAUSED / CANCELLED, control message fields, `resume` flag on the request, control exchange is a non-durable fanout |
 | Trace context on messages | a message sent inside a trace carries a W3C `traceparent` with the same trace id |
 | Health checks | downloader check: busy worker is healthy with its sentence and job counts, stuck worker degraded with the reason, endpoint down degraded, no consumer returns the queue result without calling the endpoint, no URL = queue only; queue consumer check: healthy with a consumer, degraded with none (says how many messages wait), more than 10 consumers flagged as a leak, queue missing, management API down, statistics missing; database check timeout wording; every registered check gets a 3 s timeout; publisher records each check and overall and logs only changes; JSON report shape |
 
@@ -124,6 +125,7 @@ on Windows file locking and fails on Linux (it did before the .NET 11 upgrade to
 | `on_message_received` | VERSION reply, routing to download / analyse / extract, unsupported type, empty body, ack |
 | `analyse` / `extract` / `download` | with a fake `yt_dlp.YoutubeDL`: video details, live streams rejected, extract errors logged, formats sent, error code sent as text, cancelled download clears partial files |
 | Helpers | `getDateDiff` (including whole days), `activity` date format, `getSoftwareVersion`, `printLog`, `serializeDatetime`, `clearCancelledFiles` |
+| `control` | requests taken once, cleared, expired; control messages parsed or ignored; the stop exception is a yt-dlp `DownloadCancelled`; a progress hook stops a running download before sending progress; pause keeps the `.part` file and cancel deletes it, with no ERRORED update; a queued download that was stopped is skipped; a resume clears an old pause and continues the file; cancelling a paused download deletes its files unless it's running; pause never deletes |
 | `health` (worker) | idle / busy / stuck (no progress past the threshold) / not consuming after start-up; progress keeps a long job healthy; success and failure counts with the last error; endpoint 200 / 503 / 404; watchdog reports the stuck job then exits, leaves progressing or idle jobs alone, off at 0; `main` records jobs, failures, progress, and doesn't count VERSION |
 | `telemetry` | consumer span continues the Manager's trace (and gets the download id and message type); progress messages carry the same `traceparent`; an ERRORED update fails the span; no header starts a new trace; `traced` records exceptions; `bytes` header values |
 
@@ -182,6 +184,41 @@ Manager only, locally:
 - `cd MS.Vid-dldr.Manager && dotnet run`. The project targets net11.0.
 - In `Development`, Swagger UI and gRPC reflection are enabled.
 - Health: `/health/live` and `/health/ready` (see Health checks).
+
+## Pause, resume and cancel
+
+| Endpoint (POST, body `{}`) | Allowed when | Result |
+| --- | --- | --- |
+| `/v1/client/download/{clientId}/pause` | REQUESTED, QUEUED, ANALYSIS, DOWNLOADING, RETRY | **PAUSED**: the Downloader stops; the partial `.part` file is kept |
+| `/v1/client/download/{clientId}/resume` | PAUSED | **QUEUED**: the download is sent again with `resume: true`; yt-dlp continues the `.part` file (HTTP Range) |
+| `/v1/client/download/{clientId}/cancel` | the above, and PAUSED | **CANCELLED**: the Downloader stops; partial files are deleted |
+
+Anything else returns the reason in `feedback.errorMessage` ("Only a paused download can be resumed; this one is
+CANCELLED"). The web app shows Pause / Resume / Cancel buttons per row (Cancel asks first).
+
+How it works:
+
+- **The Manager owns the state.** It saves PAUSED / CANCELLED first, then tells the Downloader. Progress, finished and
+  errored updates for a paused or cancelled download are ignored, so late messages can't undo it and no retry starts
+  (`Helpers/DownloadActions.cs`).
+- **Control messages** go out with MassTransit to the fanout exchange `ms_vd_x_downloadControl`
+  (`AppSettings:ExchangeDownloadControl`): `{"messageType":"CONTROL","action":"PAUSE"|"CANCEL","managerId":..,"downloadId":..}`,
+  with `traceparent`. Every Downloader binds its own temporary queue to it, so this works with several Downloaders.
+- **The Downloader** listens on a background thread (`app/control.py`; the worker thread is inside yt-dlp) and records
+  the request. A running download stops at its next progress hook (a yt-dlp `DownloadCancelled`, which yt-dlp lets
+  through); a queued one is skipped when its message arrives; cancelling a paused download deletes its files from the
+  listener. Stopped jobs send no ERRORED update and count as `jobsStopped` on `/health`. Requests expire after an
+  hour, and a resume clears any old one.
+- **Resume** turns off `overwrites` (which implies no-continue) and turns on `continuedl` for that job only; new
+  downloads still start clean.
+
+Tested on the running stack with a throttled test server: paused at 23%, resumed with a ranged request from byte
+7,325,316, finished, distributed, and the 30 MB file was byte-for-byte identical to the source; cancel while
+downloading and cancel after pause both removed the partial file and stayed CANCELLED.
+
+Limitation: control messages reach only Downloaders that are running (their queues are temporary). If the Downloader is
+down when you cancel, the Manager still shows CANCELLED and ignores its updates, but a download it picks up later may
+still complete and be distributed.
 
 ## Health checks
 

@@ -24,6 +24,10 @@ public class DownloadRequestDto : IMessageDto
     [JsonPropertyName("downloadStalledTimeoutSeconds")]
     public string RequestedDownloadStalledTimeoutSeconds { get; set; }
 
+    /// <summary>True when resuming a paused download: the Downloader continues the partial file.</summary>
+    [JsonPropertyName("resume")]
+    public bool Resume { get; set; }
+
     public override string ToString()
     {
         return JsonSerializer.Serialize(this);

@@ -57,6 +57,30 @@ service VdapiCallsForClient {
         get: "/v1/client/download"
     };
   }
+
+  // Stop a queued or running download and keep its partial file (status PAUSED).
+  rpc PauseDownload (DownloadActionRequest) returns (DownloadActionResponse) {
+    option (google.api.http) = {
+        post: "/v1/client/download/{client_id}/pause",
+        body: "*"
+    };
+  }
+
+  // Queue a paused download again; the Downloader continues the partial file.
+  rpc ResumeDownload (DownloadActionRequest) returns (DownloadActionResponse) {
+    option (google.api.http) = {
+        post: "/v1/client/download/{client_id}/resume",
+        body: "*"
+    };
+  }
+
+  // Stop a queued, running or paused download and delete its partial files (status CANCELLED).
+  rpc CancelDownload (DownloadActionRequest) returns (DownloadActionResponse) {
+    option (google.api.http) = {
+        post: "/v1/client/download/{client_id}/cancel",
+        body: "*"
+    };
+  }
 }
 
 message GetSessionIdRequest {
@@ -172,4 +196,14 @@ message ExistingDownloadResponse {
 message ExistingDownloadAllResponse {
     repeated ExistingDownloadResponse downloads = 1;
     Feedback feedback = 2;
+}
+
+message DownloadActionRequest {
+    string client_id = 1;
+}
+
+message DownloadActionResponse {
+    string client_id = 1;
+    string status = 2;
+    Feedback feedback = 3;
 }

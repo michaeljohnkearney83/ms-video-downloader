@@ -221,6 +221,86 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
 
         return await Task.FromResult(response);
     }
+    public override Task<DownloadActionResponse> PauseDownload(DownloadActionRequest request, ServerCallContext context) =>
+        ApplyActionAsync(DownloadActions.Pause, request, context);
+
+    public override Task<DownloadActionResponse> ResumeDownload(DownloadActionRequest request, ServerCallContext context) =>
+        ApplyActionAsync(DownloadActions.Resume, request, context);
+
+    public override Task<DownloadActionResponse> CancelDownload(DownloadActionRequest request, ServerCallContext context) =>
+        ApplyActionAsync(DownloadActions.Cancel, request, context);
+
+    /// <summary>
+    /// Pause / cancel: save PAUSED or CANCELLED first (so late progress from the Downloader is ignored), then publish
+    /// the control message. Resume: send the download again with resume=true, then mark it QUEUED.
+    /// </summary>
+    private async Task<DownloadActionResponse> ApplyActionAsync(string action, DownloadActionRequest request, ServerCallContext context)
+    {
+        var response = _serviceHelper.SetupMethod<DownloadActionResponse>(request, $"{action} download");
+        response.ClientId = request.ClientId;
+
+        try
+        {
+            if (!Guid.TryParse(request.ClientId, out var clientId))
+            {
+                response.Feedback.ErrorMessage = $"Invalid download id: {request.ClientId}";
+                return response;
+            }
+            Activity.Current?.SetTag(Telemetry.ClientIdTag, clientId.ToString());
+
+            var downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.ClientId == clientId, context.CancellationToken);
+            if (downloadEnt == null)
+            {
+                response.Feedback.ErrorMessage = $"Could not find download {clientId}";
+                return response;
+            }
+            Activity.Current?.SetTag(Telemetry.DownloadIdTag, downloadEnt.Id);
+
+            var notAllowed = DownloadActions.Validate(action, downloadEnt.Status);
+            if (notAllowed != null)
+            {
+                response.Status = downloadEnt.Status;
+                response.Feedback.ErrorMessage = notAllowed;
+                return response;
+            }
+
+            var previousStatus = downloadEnt.Status;
+            if (action == DownloadActions.Resume)
+            {
+                var downloadDto = _mapper.Map<DownloadRequestDto>(downloadEnt);
+                downloadDto.Resume = true;
+                await _publisher.SendAsync(downloadDto, context.CancellationToken);
+                downloadEnt.Status = Constants.DownloadStatusTypeQueued;
+            }
+            else
+            {
+                downloadEnt.Status = action == DownloadActions.Pause
+                    ? Constants.DownloadStatusTypePaused
+                    : Constants.DownloadStatusTypeCancelled;
+            }
+            downloadEnt.LastActivity = UtilityHelper.GetDateTimeNowUtc();
+            await _serviceHelper.SaveAsync();
+
+            if (action != DownloadActions.Resume)
+                await _publisher.SendControlAsync(new DownloadControlDto { Action = action, Id = downloadEnt.Id, ClientId = clientId },
+                    context.CancellationToken);
+
+            Telemetry.DownloadActions.Add(1, new KeyValuePair<string, object?>("vd.download.action", action));
+            _logger.LogInformation("{Action} download {DownloadId} ({ClientId}): {PreviousStatus} -> {Status}",
+                action, downloadEnt.Id, clientId, previousStatus, downloadEnt.Status);
+
+            response.Status = downloadEnt.Status;
+        }
+        catch (Exception ex)
+        {
+            response.Feedback.ErrorMessage = $"{action} failed: {ex.Message}";
+            response.Feedback.Exception = ex.ToString();
+            _logger.LogError(ex, "{Action} failed for download {ClientId}", action, request.ClientId);
+        }
+
+        return response;
+    }
+
     public override async Task<RequestExtractInfoFormatsResponse> RequestExtractInfoFormats(RequestExtractInfoFormatsRequest request, ServerCallContext context)
     {
         var response = _serviceHelper.SetupMethod<RequestExtractInfoFormatsResponse>(request, "RequestExtractInfoFormats");

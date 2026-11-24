@@ -36,6 +36,9 @@ public static class Telemetry
     public static readonly Counter<long> StatusUpdates =
         Meter.CreateCounter<long>("vd.download.status_updates", description: "Status updates received from the Downloader");
 
+    public static readonly Counter<long> DownloadActions =
+        Meter.CreateCounter<long>("vd.download.actions", description: "Pause / resume / cancel requests applied");
+
     public const string TraceIdHeader = "X-Trace-Id";
 
     private static readonly string[] Statuses = ["ANALYSIS", "DOWNLOADING", "FINISHED", "ERRORED", "EXTRACT_INFO"];

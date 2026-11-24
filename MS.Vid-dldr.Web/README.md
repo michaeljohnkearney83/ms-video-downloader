@@ -18,6 +18,7 @@ React app ──REST──> Manager ──MassTransit/RabbitMQ──> Downloader
 | `DownloadForm` – URL, folder, file name, extension, retries, timeouts, force | `POST /v1/client/download` |
 | `DownloadForm` → `FormatsTable` – "Check formats" lists what yt-dlp found; "Use .ext" copies the extension | `POST /v1/client/download/extractInfo/formats` |
 | `DownloadList` – status badge and progress bar per download, every 3 s and straight after queueing | `GET /v1/client/downloads/{sessionId}` |
+| `DownloadList` row buttons – Pause / Cancel while queued or running, Resume / Cancel when paused (Cancel asks first); the reason is shown when the Manager refuses | `POST /v1/client/download/{clientId}/{pause\|resume\|cancel}` |
 
 `src/api/managerClient.ts` is the typed client. It throws `ManagerApiError` for network failures, gRPC errors
 (`{ code, message }`) and for HTTP 200 responses whose `feedback.errorMessage` is set. Components get the client from
@@ -92,6 +93,7 @@ npm run lint         # oxlint
 | `SessionForm` | gets a session and saves the key; shows the Manager error |
 | `DownloadForm` | request body, "already active" warning, formats table and "Use .ext" |
 | `DownloadList` | rows, status, progress bar value, per-download error |
+| Download actions | which buttons each status gets; pause shows the new status; resume for paused; cancel asks first and does nothing when declined; the Manager's reason when refused; no buttons for finished |
 | `ServiceStatus` | "Manager unreachable" when the call fails; names each dependency and shows why one is degraded; "All systems up" when healthy |
 
 ## Layout

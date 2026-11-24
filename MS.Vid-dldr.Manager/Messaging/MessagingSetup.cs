@@ -12,6 +12,12 @@ public static class MessagingSetup
 {
     public static Uri GetQueueAddress(string queueName) => new($"queue:{queueName}?durable=false");
 
+    /// <summary>
+    /// Fanout exchange for control messages. Each Downloader binds its own temporary queue to it, so every instance
+    /// hears a pause / cancel. Declared non-durable, matching the Downloader's declaration.
+    /// </summary>
+    public static Uri GetControlExchangeAddress(string exchangeName) => new($"exchange:{exchangeName}?type=fanout&durable=false");
+
     public static IServiceCollection AddDownloaderMessaging(this IServiceCollection services)
     {
         services.AddMassTransit(x =>

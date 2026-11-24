@@ -15,5 +15,9 @@ public static class Constants
     public const string DownloadStatusTypeDeleted = "DELETED";
     public const string DownloadStatusTypeErrored = "ERRORED";
     public const string DownloadStatusTypeRetry = "RETRY";
+    /// <summary>Stopped by the user; the partial file is kept and Resume continues it.</summary>
+    public const string DownloadStatusTypePaused = "PAUSED";
+    /// <summary>Stopped by the user; the partial file is deleted.</summary>
+    public const string DownloadStatusTypeCancelled = "CANCELLED";
     public const string ExtractInfoTypeFormats = "FORMATS";
 }
