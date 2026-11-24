@@ -6,6 +6,7 @@ public class AppSettings : IAppSettings
     {
         ConnectionStringsDownloadsDb = configuration["ConnectionStrings:DownloadsDb"];
         HomeDrivePath = configuration["AppSettings:HomeDrivePath"];
+        HomeDriveMountPath = configuration["AppSettings:HomeDriveMountPath"] ?? "";
         ChannelHostName = configuration["AppSettings:ChannelHostName"];
         ChannelPortNumber = Convert.ToInt32(configuration["AppSettings:ChannelPortNumber"]);
         ChannelUsername = configuration["AppSettings:ChannelUsername"] ?? "guest";
@@ -26,6 +27,11 @@ public class AppSettings : IAppSettings
 
     public string ConnectionStringsDownloadsDb { get; set; }
     public string HomeDrivePath { get; set; }
+    /// <summary>
+    /// HomeDrivePath as mounted into the Manager's container (e.g. /home-drive), so a session's deployment folder can be
+    /// created when the session starts. Empty = don't create it here (the Distributor creates it on delivery).
+    /// </summary>
+    public string HomeDriveMountPath { get; set; }
     public string ChannelHostName { get; set; }
     public int ChannelPortNumber { get; set; }
     public string ChannelUsername { get; set; }
@@ -55,6 +61,7 @@ public class AppSettings : IAppSettings
         return
         $"+ ConnectionStringsDownloadsDb: {ConnectionStringsDownloadsDb}, \r\n" +
         $"+ HomeDrivePath: {HomeDrivePath}, \r\n" +
+        $"+ HomeDriveMountPath: {HomeDriveMountPath}, \r\n" +
         $"+ ChannelHostName: {ChannelHostName}, \r\n" +
         $"+ ChannelPortNumber: {ChannelPortNumber}, \r\n" +
         $"+ ChannelUsername: {ChannelUsername}, \r\n" +

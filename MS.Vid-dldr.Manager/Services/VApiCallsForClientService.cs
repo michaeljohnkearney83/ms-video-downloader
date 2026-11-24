@@ -17,6 +17,7 @@ using MS.Vid_dldr.Manager.Mappers;
 using System.Net.Http.Headers;
 using System.Diagnostics;
 using MS.Vid_dldr.Manager.Observability;
+using MS.Vid_dldr.Manager.Live;
 
 namespace MS.Vid_dldr.Manager.Services;
 
@@ -29,10 +30,14 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
     private readonly IAppSettings _appSettings;
     private readonly IServiceHelper _serviceHelper;
     private readonly IDownloadRequestPublisher _publisher;
+    private readonly ILiveProgressStore _liveProgress;
+    private readonly ILiveDownloadNotifier _liveNotifier;
 
     public VdApiCallsForClientService(ILogger<VdApiCallsForClientService> logger, AppDbContext dbContext, IMapper mapper, IAppSettings appSettings, IServiceHelper serviceHelper,
-        IDownloadRequestPublisher publisher)
+        IDownloadRequestPublisher publisher, ILiveProgressStore liveProgress, ILiveDownloadNotifier liveNotifier)
     {
+        _liveProgress = liveProgress;
+        _liveNotifier = liveNotifier;
         _logger = logger;
         _dbContext = dbContext;
         _mapper = mapper;
@@ -84,6 +89,8 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
 
             response.DownloadSesssionId = (downloadSessionExistingEnt == null) ? downloadNewEnt.Id.ToString() : downloadSessionExistingEnt.Id.ToString();
             response.Feedback.ErrorMessage = (downloadSessionExistingEnt == null && !wasSuccessful) ? "Failed to get session id" : "";
+            response.DefaultDownloadFolder = DeploymentFolder.Default(_appSettings.HomeDrivePath, request.DeploymentNo);
+            CreateDeploymentFolder(request.DeploymentNo);
 
             foreach (var downloadEnt in downloadEnts)
             {
@@ -105,25 +112,51 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
 
         return await Task.FromResult(response);
     }
+    /// <summary>
+    /// Creates the session's deployment folder (HomeDrivePath + deployment no.) when HomeDrivePath is mounted into this
+    /// container. Never fails the session: the Distributor also creates the folder when it delivers a file.
+    /// </summary>
+    private void CreateDeploymentFolder(string deploymentNo)
+    {
+        try
+        {
+            var created = DeploymentFolder.Create(_appSettings.HomeDriveMountPath, deploymentNo);
+            if (created != null)
+                _logger.LogInformation("Created deployment folder {Folder} for deployment {DeploymentNo}", created, deploymentNo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not create the deployment folder for deployment {DeploymentNo}", deploymentNo);
+        }
+    }
+
     public override async Task<GetDownloadsBySessionIdResponse> GetDownloadsBySessionId(GetDownloadsBySessionIdRequest request, ServerCallContext context)
     {
         var response = _serviceHelper.SetupMethod<GetDownloadsBySessionIdResponse>(request, "GetDownloadsBySessionId");
 
         try
         {
-            var downloadEnts = _dbContext.Downloads.Where(x => x.DownloadSessionId == Guid.Parse(request.DownloadSesssionId))
-                                                   .OrderByDescending(x => x.RequestedOn);
+            var downloadEnts = await _dbContext.Downloads.AsNoTracking()
+                                                   .Where(x => x.DownloadSessionId == Guid.Parse(request.DownloadSesssionId))
+                                                   .OrderByDescending(x => x.RequestedOn)
+                                                   .ToListAsync(context.CancellationToken);
+
+            // Postgres has a checkpoint every 30 s; Redis has the latest tick of anything still running.
+            var live = await _liveProgress.GetAsync(downloadEnts
+                .Where(x => x.Status is Constants.DownloadStatusTypeQueued or Constants.DownloadStatusTypeAnalysis or Constants.DownloadStatusTypeDownloading)
+                .Select(x => x.Id).ToList());
 
             foreach (var downloadEnt in downloadEnts)
             {
+                var (status, percent) = LiveProgressMerge.Merge(downloadEnt.Status, downloadEnt.ProgressPercent, live.GetValueOrDefault(downloadEnt.Id));
                 response.Downloads.Add(new DownloadProgressResponse
                 {
                     ClientId = downloadEnt.ClientId.ToString(),
                     RequestedDownloadName = $"{downloadEnt.RequestedDownloadName}.{downloadEnt.RequestedDownloadExt}",
                     RequestedUrl = downloadEnt.RequestedUrl,
                     RequestedOn = Google.Protobuf.WellKnownTypes.Timestamp.FromDateTime(downloadEnt.RequestedOn),
-                    Status = downloadEnt.Status,
-                    ProgressPercentage = string.IsNullOrWhiteSpace(downloadEnt.ProgressPercent) ? "null" : downloadEnt.ProgressPercent,
+                    Status = status,
+                    ProgressPercentage = string.IsNullOrWhiteSpace(percent) ? "null" : percent,
                     Feedback = new Feedback { ErrorMessage = !string.IsNullOrWhiteSpace(downloadEnt.ErrorMessage) ? downloadEnt.ErrorMessage : "" },
                 });
             }
@@ -174,8 +207,7 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
                 {
                     var downloadSessionEnt = await _dbContext.DownloadSessions.FirstAsync(x => x.Id == downloadEnt.DownloadSessionId);
 
-                    var deplNo = downloadSessionEnt.DeploymentNo;
-                    downloadEnt.RequestedDownloadFolder = $"{_appSettings.HomeDrivePath}{deplNo}\\";
+                    downloadEnt.RequestedDownloadFolder = DeploymentFolder.Default(_appSettings.HomeDrivePath, downloadSessionEnt.DeploymentNo);
                 }
 
                 if (string.IsNullOrWhiteSpace(downloadEnt.RequestedDownloadExt) || downloadEnt.RequestedDownloadExt == "")
@@ -284,6 +316,8 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
             if (action != DownloadActions.Resume)
                 await _publisher.SendControlAsync(new DownloadControlDto { Action = action, Id = downloadEnt.Id, ClientId = clientId },
                     context.CancellationToken);
+
+            await _liveNotifier.DownloadChangedAsync(downloadEnt, context.CancellationToken);
 
             Telemetry.DownloadActions.Add(1, new KeyValuePair<string, object?>("vd.download.action", action));
             _logger.LogInformation("{Action} download {DownloadId} ({ClientId}): {PreviousStatus} -> {Status}",

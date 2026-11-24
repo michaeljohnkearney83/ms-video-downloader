@@ -94,6 +94,8 @@ message GetSessionIdResponse {
     string download_sesssion_id = 1;
     repeated DownloadProgressResponse downloads = 2;
     Feedback feedback = 3;
+    // Where downloads go when the request has no folder: HomeDrivePath + deployment no.
+    string default_download_folder = 4;
 }
 
 message GetDownloadsBySessionIdRequest {

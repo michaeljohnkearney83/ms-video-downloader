@@ -19,6 +19,8 @@ function loadSavedKey(): SessionKey {
 export interface Session {
   id: string
   key: SessionKey
+  /** HomeDrivePath + deployment no.: where downloads go when Folder is left empty. */
+  defaultFolder?: string
 }
 
 /** Gets (or creates) a download session from the Manager for a user, FID, client and deployment. */
@@ -39,7 +41,7 @@ export function SessionForm({ onSession }: { onSession: (session: Session) => vo
       const response = await client.getSession(key)
       if (!response.downloadSesssionId) throw new Error('The Manager did not return a session id')
       localStorage.setItem(storageKey, JSON.stringify(key))
-      onSession({ id: response.downloadSesssionId, key })
+      onSession({ id: response.downloadSesssionId, key, defaultFolder: response.defaultDownloadFolder || undefined })
     } catch (err) {
       setError(describeError(err))
     } finally {

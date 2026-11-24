@@ -25,12 +25,13 @@ def default_settings(monkeypatch):
         "DefaultRetryCount": 3,
         "DefaultTimeoutSeconds": 30,
         "DefaultDownloadStalledTimeoutSeconds": 138,
+        "DownloadFolder": "h-drive",
     }
     for name, value in defaults.items():
         monkeypatch.setattr(appsettings, name, value)
     for var in ("IS_DEBUG_MODE", "QUEUE_REQUEST_DOWNLOAD", "QUEUE_DOWNLOAD_UPDATE", "CHANNEL_HOST",
                 "CHANNEL_PORT_NUMBER", "DEFAULT_DOWNLOAD_EXT", "DEFAULT_RETRY_COUNT", "DEFAULT_TIMEOUT_SECONDS",
-                "DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS"):
+                "DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS", "DOWNLOAD_FOLDER"):
         monkeypatch.delenv(var, raising=False)
 
 

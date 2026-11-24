@@ -9,6 +9,7 @@ using MS.Vid_dldr.Manager.Messaging;
 using MS.Vid_dldr.Manager.Observability;
 using MS.Vid_dldr.Manager.Health;
 using Microsoft.OpenApi.Models;
+using MS.Vid_dldr.Manager.Live;
 
 Console.WriteLine($"{Constants.MsNoticeLogPrefix}[INITIALISE] MS.Vid-dldr.Manager [v{UtilityHelper.GetVersion()}] started!");
 
@@ -25,6 +26,7 @@ builder.Services.AddGrpcReflection();
 builder.Services.AddDownloaderMessaging();
 builder.AddVdTelemetry();
 builder.Services.AddVdHealthChecks();
+builder.Services.AddLiveProgress(builder.Configuration);
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DownloadsDb"), npgsql => npgsql.EnableRetryOnFailure(
@@ -118,6 +120,8 @@ app.UseTraceIdResponseHeader();
 app.UseCors();
 
 app.MapVdHealthChecks();
+// Same origin only (the web app reaches it through nginx / the Vite proxy), so no CORS policy.
+app.MapLiveProgress();
 app.MapGrpcService<VdApiCallsForGenericService>().RequireCors("AllowAll");
 app.MapGrpcService<VdApiCallsForClientService>().RequireCors("AllowAll");
 app.MapGrpcService<VdApiCallsForConfigureService>().RequireCors("AllowAll");

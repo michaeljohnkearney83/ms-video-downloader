@@ -7,4 +7,5 @@ public interface IAppSettings
     int ChannelPortNumber { get; set; }
     string QueueRequestDownload { get; set; }
     string QueueDownloadUpdate { get; set; }
+    int ProgressCheckpointSeconds { get; set; }
 }

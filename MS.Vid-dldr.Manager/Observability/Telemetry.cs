@@ -39,6 +39,9 @@ public static class Telemetry
     public static readonly Counter<long> DownloadActions =
         Meter.CreateCounter<long>("vd.download.actions", description: "Pause / resume / cancel requests applied");
 
+    public static readonly Counter<long> LivePushes =
+        Meter.CreateCounter<long>("vd.live.pushes", description: "Progress events pushed to browsers over SignalR");
+
     public const string TraceIdHeader = "X-Trace-Id";
 
     private static readonly string[] Statuses = ["ANALYSIS", "DOWNLOADING", "FINISHED", "ERRORED", "EXTRACT_INFO"];
@@ -51,6 +54,8 @@ public static class Telemetry
     public static void InitialiseCounters()
     {
         DownloadsRequested.Add(0);
+        LivePushes.Add(0, new KeyValuePair<string, object?>("vd.live.kind", "progress"));
+        LivePushes.Add(0, new KeyValuePair<string, object?>("vd.live.kind", "changed"));
         foreach (var status in Statuses)
             StatusUpdates.Add(0, new KeyValuePair<string, object?>(StatusTag, status));
     }
@@ -70,7 +75,8 @@ public static class Telemetry
                 .AddAspNetCoreInstrumentation(o => o.Filter = context => !context.Request.Path.StartsWithSegments("/health"))
                 .AddHttpClientInstrumentation(o => o.FilterHttpRequestMessage = request =>
                     request.RequestUri?.AbsolutePath.StartsWith("/api/queues/") != true)
-                .AddNpgsql())
+                .AddNpgsql()
+                .AddRedisInstrumentation())
             .WithMetrics(m => m
                 .AddMeter(Meter.Name)
                 .AddMeter("MassTransit")

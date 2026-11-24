@@ -18,6 +18,22 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Live download progress: the Updater writes each tick here (hash vd:progress:{id} + PUBLISH vd:progress) and the
+  # Manager relays it to browsers over SignalR. Ephemeral by design: no volume, no persistence; Postgres keeps state.
+  redis:
+    image: redis:7.4-alpine
+    container_name: ms_vid-dldr-redis
+    hostname: redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
   # Observability: OpenTelemetry collector + Tempo (traces) + Loki (logs) + Prometheus (metrics) + Grafana.
   # Grafana: http://localhost:3000 (admin/admin). Services send OTLP to otel-lgtm:4317 (gRPC) / :4318 (HTTP).
   otel-lgtm:
@@ -46,6 +62,12 @@ services:
     hostname: manager-api
     volumes:
       - /var/run/docker.sock.sock:/var/run/docker.sock
+      # The default download folder (vd), so starting a session creates its deployment folder (vd/1380).
+      - type: bind
+        source: ${MANAGER_HOME_DRIVE_PATH}
+        target: /home-drive
+        bind:
+          create_host_path: true
     environment:
       - ConnectionStrings__DownloadsDb=User ID=postgres;Password=postgres;Server=manager-db;Port=5432;Database=MS.VdDownloader;Pooling=true;
       - Kestrel__Endpoints__gRPC__Url=http://*:5000
@@ -58,8 +80,10 @@ services:
       # The downloader health check asks the worker itself what it is doing (stuck jobs), not just the queue.
       - AppSettings__DownloaderHealthUrl=http://downloader:8081/health
       - AppSettings__HomeDrivePath=${MANAGER_HOME_DRIVE_PATH}
+      - AppSettings__HomeDriveMountPath=/home-drive
       # Dev is a single-user machine: a Distributor with DistributorUsername "*" may deliver anyone's downloads.
       - AppSettings__AllowAnyUserDistribution=true
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
       - OTEL_METRIC_EXPORT_INTERVAL=15000
       - SENTRY_DSN=${SENTRY_DSN:-}
     ports:
@@ -77,10 +101,12 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       otel-lgtm:
         condition: service_started
     restart: unless-stopped
-    
+
   manager-db:
     image: postgres:17  # 18+ wants the volume at /var/lib/postgresql, not .../data
     container_name: ms_vid-dldr-manager-db
@@ -112,7 +138,13 @@ services:
     container_name: ms_vid-dldr-downloader-srv
     hostname: downloader
     volumes:
-      - ${HOME_DRIVE_PATH}
+      # The parent (vd) folder, not the share folder itself: a bind mount of a folder that is later deleted stays
+      # broken ("Unable to create directory: File exists"), whereas a deleted share folder inside vd is just made again.
+      - type: bind
+        source: ${MANAGER_HOME_DRIVE_PATH}
+        target: /home-drive
+        bind:
+          create_host_path: true
     #ports:
     #  - "7105:7105"
     #deploy:
@@ -132,6 +164,8 @@ services:
 
     environment:
       - IS_DEBUG_MODE=${IS_DEBUG_MODE}
+      # Downloads go to vd/<SHARE_FOLDER_NAME>; the Distributor watches the same folder (DownloaderShareFilePath).
+      - DOWNLOAD_FOLDER=/home-drive/${SHARE_FOLDER_NAME:-MS.VD.Distributor}
       - QUEUE_REQUEST_DOWNLOAD=${QUEUE_REQUEST_DOWNLOAD}
       - QUEUE_DOWNLOAD_UPDATE=${QUEUE_DOWNLOAD_UPDATE}
       - CHANNEL_HOST=${CHANNEL_HOST}
@@ -160,12 +194,17 @@ services:
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
       - OTEL_SERVICE_NAME=ms-vid-dldr-updater
+      - ConnectionStrings__Redis=redis:6379,abortConnect=false
+      # Postgres gets a DOWNLOADING update at most this often per download (state changes always go through).
+      - AppSettings__ProgressCheckpointSeconds=30
       - OTEL_METRIC_EXPORT_INTERVAL=15000
       - SENTRY_DSN=${SENTRY_DSN:-}
     depends_on:
       rabbitmq:
         condition: service_healthy
       manager-api:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 

@@ -15,6 +15,8 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/v1': { target: managerUrl, changeOrigin: true },
         '/health': { target: managerUrl, changeOrigin: true },
+        // SignalR: negotiate over HTTP, then a WebSocket.
+        '/hubs': { target: managerUrl, changeOrigin: true, ws: true },
       },
     },
     test: {

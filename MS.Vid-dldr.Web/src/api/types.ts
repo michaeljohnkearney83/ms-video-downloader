@@ -34,6 +34,8 @@ export interface GetSessionIdResponse {
   downloadSesssionId?: string
   downloads?: DownloadProgress[]
   feedback?: Feedback
+  /** Where downloads go when the folder is left empty: HomeDrivePath + deployment no. */
+  defaultDownloadFolder?: string
 }
 
 export interface GetDownloadsBySessionIdResponse {

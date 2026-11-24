@@ -4,6 +4,7 @@ public interface IAppSettings
 {
     string ConnectionStringsDownloadsDb { get; set; }
     string HomeDrivePath { get; set; }
+    string HomeDriveMountPath { get; set; }
     string ChannelHostName { get; set; }
     int ChannelPortNumber { get; set; }
     string ChannelUsername { get; set; }

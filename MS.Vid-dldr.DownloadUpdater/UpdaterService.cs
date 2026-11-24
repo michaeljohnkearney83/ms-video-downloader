@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using MS.Vid_dldr.DownloadUpdater.Helpers;
 using System.Runtime.InteropServices;
 using MS.Vid_dldr.DownloaderUpdater.Mappers;
+using MS.Vid_dldr.DownloadUpdater.Progress;
 
 namespace MS.Vid_dldr.DownloadUpdater;
 
@@ -26,10 +27,14 @@ public class UpdaterService : IHostedService
     private IModel _rMqChannel;
     private GrpcChannel _apiChannel;
     private VdApiCallsForUpdater.VdApiCallsForUpdaterClient _client;
+    private readonly IProgressStore _progressStore;
+    private readonly ProgressCheckpoint _checkpoint;
 
-    public UpdaterService(IAppSettings appSettings, ILoggerFactory loggerFactory)
+    public UpdaterService(IAppSettings appSettings, ILoggerFactory loggerFactory, IProgressStore progressStore, ProgressCheckpoint checkpoint)
     {
         _appSettings = appSettings;
+        _progressStore = progressStore;
+        _checkpoint = checkpoint;
         _loggerFactory = loggerFactory;
         _logger = loggerFactory.CreateLogger<UpdaterService>();
         ConfigureDownloaderConsumer();
@@ -123,7 +128,21 @@ public class UpdaterService : IHostedService
             });
             _logger.LogDebug("Message received: {Message}", message);
 
+            if (status == Constantss.DownloadStatusTypeDownloading && !await ShouldForwardProgressAsync(downloadUpdateDto))
+            {
+                activity?.SetTag("vd.progress.persisted", false);
+                Telemetry.ManagerCallsSkipped.Add(1);
+                return;
+            }
+
             await ForwardAsync(downloadUpdateDto, message);
+
+            if (status is Constantss.DownloadStatusTypeAnalysis or Constantss.DownloadStatusTypeFinished or Constantss.DownloadStatusTypeErrored)
+            {
+                if (status != Constantss.DownloadStatusTypeAnalysis) _checkpoint.Forget(downloadUpdateDto.Id);
+                // After the Manager has saved it, so a browser that re-reads the list sees the new state.
+                await _progressStore.PublishStateChangeAsync(ToProgressEvent(downloadUpdateDto));
+            }
 
             _logger.LogInformation("Forwarded {Status} for download {DownloadId} to the Manager", status, downloadUpdateDto.Id);
         }
@@ -147,6 +166,19 @@ public class UpdaterService : IHostedService
             Telemetry.ProcessingDuration.Record(Stopwatch.GetElapsedTime(started).TotalSeconds, tags);
         }
     }
+
+    /// <summary>
+    /// Every DOWNLOADING tick goes to Redis (browsers get it live). The Manager, and so Postgres, gets only the ticks
+    /// <see cref="ProgressCheckpoint"/> picks, or every tick while Redis is down.
+    /// </summary>
+    private async Task<bool> ShouldForwardProgressAsync(DownloadUpdateDto dto)
+    {
+        var live = await _progressStore.WriteProgressAsync(ToProgressEvent(dto));
+        return !live | _checkpoint.ShouldPersist(dto.Id, DateTime.UtcNow);
+    }
+
+    private static ProgressEvent ToProgressEvent(DownloadUpdateDto dto) =>
+        new(dto.Id, dto.Status, dto.ProgressPercent, dto.ProgressSpeed, dto.ProgressEta, DateTime.UtcNow);
 
     private async Task ForwardAsync(DownloadUpdateDto downloadUpdateDto, string message)
     {

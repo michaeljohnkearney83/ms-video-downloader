@@ -26,6 +26,18 @@ server {
         proxy_read_timeout 10s;
     }
 
+    # SignalR (live download progress): WebSocket upgrade, and keep idle connections open (the hub pings every 15 s).
+    location /hubs/ {
+        set $manager ${MANAGER_URL};
+        proxy_pass $manager;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $proxy_host;
+        proxy_read_timeout 120s;
+        proxy_buffering off;
+    }
+
     location = /healthz {
         access_log off;
         default_type text/plain;

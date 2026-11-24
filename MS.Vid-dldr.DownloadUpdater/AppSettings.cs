@@ -11,6 +11,7 @@ public class AppSettings : IAppSettings
         ChannelPortNumber = Convert.ToInt32(configuration["AppSettings:ChannelPortNumber"]);
         QueueRequestDownload = configuration["AppSettings:QueueRequestDownload"];
         QueueDownloadUpdate = configuration["AppSettings:QueueDownloadUpdate"];
+        ProgressCheckpointSeconds = int.TryParse(configuration["AppSettings:ProgressCheckpointSeconds"], out var seconds) && seconds > 0 ? seconds : 30;
     }
 
     public string ManagerApiAddress { get; set; }
@@ -18,4 +19,5 @@ public class AppSettings : IAppSettings
     public int ChannelPortNumber { get; set; }
     public string QueueRequestDownload { get; set; }
     public string QueueDownloadUpdate { get; set; }
+    public int ProgressCheckpointSeconds { get; set; }
 }

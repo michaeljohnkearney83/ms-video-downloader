@@ -420,3 +420,30 @@ button.danger {
   border-color: var(--error);
   color: var(--error);
 }
+
+/* Shown while progress is pushed over SignalR. */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: #22a06b;
+  vertical-align: middle;
+}
+
+.formats {
+  margin-top: 16px;
+}
+
+.formats-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.card-header .secondary {
+  margin-left: auto;
+}

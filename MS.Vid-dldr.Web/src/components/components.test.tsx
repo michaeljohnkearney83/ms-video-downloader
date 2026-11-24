@@ -49,6 +49,13 @@ describe('SessionForm', () => {
 })
 
 describe('DownloadForm', () => {
+  it("always saves to the session's deployment folder: there is no folder box to mistype", () => {
+    renderWithClient(<DownloadForm sessionId="s1" defaultFolder={'C:\\Users\\me\\Videos\\vd\\1380\\'} />)
+
+    expect(screen.getByText('C:\\Users\\me\\Videos\\vd\\1380\\')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Folder')).not.toBeInTheDocument()
+  })
+
   it('queues a download for the session', async () => {
     const onQueued = vi.fn()
     const { client } = renderWithClient(<DownloadForm sessionId="s1" onQueued={onQueued} />)
@@ -97,6 +104,59 @@ describe('DownloadForm', () => {
     expect(client.extractFormats).toHaveBeenCalledWith({ downloadSessionId: 's1', requestedUrl: 'https://example.com/v', timeoutMs: 0 })
     expect(screen.getByText('3.3 MB')).toBeInTheDocument()
     expect(screen.getByLabelText('Extension')).toHaveValue('webm')
+  })
+
+  it('collapses and expands the formats table', async () => {
+    const client = fakeClient({
+      extractFormats: vi.fn().mockResolvedValue({ extractInfo: { formats: [{ formatId: '251', ext: 'webm' }] } }),
+    })
+    renderWithClient(<DownloadForm sessionId="s1" />, client)
+    await userEvent.type(screen.getByLabelText('Video URL'), 'https://example.com/v')
+    await userEvent.click(screen.getByRole('button', { name: 'Check formats' }))
+    expect(await screen.findByRole('table', { name: 'Available formats' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Hide formats' }))
+    expect(screen.queryByRole('table', { name: 'Available formats' })).not.toBeInTheDocument()
+    expect(screen.getByText('1 format found')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Show formats' }))
+    expect(screen.getByRole('table', { name: 'Available formats' })).toBeInTheDocument()
+  })
+})
+
+describe('DownloadList clear distributed', () => {
+  const rows = {
+    downloads: [
+      { clientId: 'a', requestedDownloadName: 'running', status: 'DOWNLOADING' },
+      { clientId: 'b', requestedDownloadName: 'delivered-1', status: 'DISTRIBUTED' },
+      { clientId: 'c', requestedDownloadName: 'delivered-2', status: 'DISTRIBUTED' },
+    ],
+  }
+
+  it('hides delivered downloads, keeps the rest, and remembers it after a reload', async () => {
+    const client = fakeClient({ getDownloadsBySession: vi.fn().mockResolvedValue(rows) })
+    const { unmount } = renderWithClient(<DownloadList sessionId="s1" />, client)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear distributed (2)' }))
+
+    expect(screen.queryByText('delivered-1')).not.toBeInTheDocument()
+    expect(screen.getByText('running')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Clear distributed/ })).not.toBeInTheDocument()
+
+    unmount()
+    renderWithClient(<DownloadList sessionId="s1" />, client)
+    expect(await screen.findByText('running')).toBeInTheDocument()
+    expect(screen.queryByText('delivered-2')).not.toBeInTheDocument()
+  })
+
+  it('is per session', async () => {
+    const client = fakeClient({ getDownloadsBySession: vi.fn().mockResolvedValue(rows) })
+    const { unmount } = renderWithClient(<DownloadList sessionId="s1" />, client)
+    await userEvent.click(await screen.findByRole('button', { name: 'Clear distributed (2)' }))
+    unmount()
+
+    renderWithClient(<DownloadList sessionId="s2" />, client)
+    expect(await screen.findByText('delivered-1')).toBeInTheDocument()
   })
 })
 

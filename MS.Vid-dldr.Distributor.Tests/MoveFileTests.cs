@@ -61,12 +61,40 @@ public class MoveFileTests
     }
 
     [Fact]
-    public async Task Missing_destination_folder_deletes_share_file_and_reports_deleted()
+    public async Task Missing_deployment_folder_is_created_and_the_file_delivered()
     {
         using var folders = new TempFolders();
         var source = folders.CreateShareFile(Id + ".mp4");
-        var missing = Path.Combine(folders.Root, "does-not-exist");
+        // The Manager's default folder for deployment 1380 on a machine that has never had one.
+        var missing = Path.Combine(folders.Root, "vd", "1380") + Path.DirectorySeparatorChar;
         var (service, handler) = CreateService(folders, r => Manager(r, missing));
+
+        Assert.True(await service.MoveFileAsync(source, "test"));
+        Assert.False(File.Exists(source));
+        Assert.Single(Directory.GetFiles(missing));
+        Assert.Contains(DistributedPath, handler.Paths);
+    }
+
+    [Fact]
+    public void A_deleted_share_folder_is_created_again()
+    {
+        using var folders = new TempFolders();
+        var (service, _) = CreateService(folders, r => Manager(r, folders.Destination));
+        Directory.Delete(folders.Share, recursive: true);
+
+        service.CheckShareFolder();
+
+        Assert.True(Directory.Exists(folders.Share));
+    }
+
+    [Fact]
+    public async Task Deployment_folder_that_cannot_be_created_deletes_share_file_and_reports_deleted()
+    {
+        using var folders = new TempFolders();
+        var source = folders.CreateShareFile(Id + ".mp4");
+        var blocker = Path.Combine(folders.Root, "a-file");
+        File.WriteAllText(blocker, "x");
+        var (service, handler) = CreateService(folders, r => Manager(r, Path.Combine(blocker, "1380")));
 
         Assert.False(await service.MoveFileAsync(source, "test"));
         Assert.False(File.Exists(source));

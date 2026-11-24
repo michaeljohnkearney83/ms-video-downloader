@@ -11,6 +11,7 @@ import type {
   RequestDownloadResponse,
   SessionKey,
 } from './types'
+import { subscribeLiveDownloads, type LiveHandlers, type Unsubscribe } from './liveDownloads'
 
 export class ManagerApiError extends Error {
   readonly status: number
@@ -56,6 +57,8 @@ export interface ManagerClient {
   extractFormats(request: ExtractFormatsRequest): Promise<ExtractFormatsResponse>
   /** POST /v1/client/download/{clientId}/{pause|resume|cancel}. Throws with the Manager's reason when not allowed. */
   downloadAction(clientId: string, action: DownloadAction): Promise<DownloadActionResponse>
+  /** Live progress pushed over SignalR (/hubs/downloads). Optional: without it the list only polls. */
+  subscribeLive?(sessionId: string, handlers: LiveHandlers): Unsubscribe
 }
 
 const segment = (value: string) => encodeURIComponent(value.trim())
@@ -138,5 +141,6 @@ export function createManagerClient(baseUrl = '', fetchImpl: typeof fetch = (...
     extractFormats: (request) => post<ExtractFormatsResponse>('/v1/client/download/extractInfo/formats', request),
     downloadAction: (clientId, action) =>
       post<DownloadActionResponse>(`/v1/client/download/${segment(clientId)}/${action}`, {}),
+    subscribeLive: (sessionId, handlers) => subscribeLiveDownloads(root, sessionId, handlers),
   }
 }

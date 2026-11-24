@@ -127,6 +127,7 @@ def downloading(percent="42.0%", eta="00:10"):
 
 
 def test_progressHooks_sends_downloading_update(sent, request_globals):
+    main._overall.reset([None])
     main.resetDownloadStalled()
     main.progressHooks(downloading())
 
@@ -138,11 +139,29 @@ def test_progressHooks_sends_downloading_update(sent, request_globals):
     dt.datetime.strptime(message["activity"], "%d/%m/%Y %H:%M:%S")
 
 
-@pytest.mark.parametrize("msg", [downloading(eta="00:00"), downloading(percent="100.0%"), {"status": "finished"}])
-def test_progressHooks_sends_finished(sent, request_globals, msg):
+@pytest.mark.parametrize("msg, percent", [(downloading(eta="00:00"), "42.0%"), (downloading(percent="100.0%"), "99.9%"),
+                                          ({"status": "finished"}, "99.9%")])
+def test_progressHooks_never_sends_finished(sent, request_globals, msg, percent):
+    # FINISHED comes from download() once yt-dlp has merged and moved the file, not from a part's hook.
+    main._overall.reset([None])
     main.resetDownloadStalled()
     main.progressHooks(msg)
-    assert sent[0][1]["status"] == c.DownloadStatusTypeFinished
+    assert sent[0][1]["status"] == c.DownloadStatusTypeDownloading
+    assert sent[0][1]["percent"] == percent
+
+
+def test_progressHooks_reports_one_figure_across_video_and_audio(sent, request_globals):
+    # A 900 MB video part, then a 100 MB audio part: the bar goes 0-100% once, not twice.
+    main._overall.reset([900, 100])
+    main.resetDownloadStalled()
+
+    main.progressHooks(downloading("50.0%"))
+    main.progressHooks({"status": "finished", "filename": "h-drive/x.f137.mp4"})
+    main.progressHooks(downloading("50.0%"))
+    main.progressHooks({"status": "finished", "filename": "h-drive/x.f140.m4a"})
+
+    assert [(m["status"], m["percent"]) for _, m in sent] == [
+        ("DOWNLOADING", "45.0%"), ("DOWNLOADING", "90.0%"), ("DOWNLOADING", "95.0%"), ("DOWNLOADING", "99.9%")]
 
 
 def test_progressHooks_unknown_status_sends_errored(sent, request_globals):
@@ -307,12 +326,22 @@ def test_download_error_code_is_sent_as_text(sent, request_globals, fake_ydl):
     assert "1" in error["errorMsg"]
 
 
-def test_download_success_sends_no_error(sent, request_globals, fake_ydl):
+def test_download_success_sends_finished_once(sent, request_globals, fake_ydl):
     fake_ydl.info = VIDEO_INFO
 
     main.download()
 
-    assert [m["status"] for _, m in sent] == [c.DownloadStatusTypeAnalysis]
+    assert [m["status"] for _, m in sent] == [c.DownloadStatusTypeAnalysis, c.DownloadStatusTypeFinished]
+
+
+def test_analyse_learns_the_parts_from_the_downloads_format_choice(sent, request_globals, fake_ydl):
+    fake_ydl.info = {**VIDEO_INFO, "requested_formats": [{"format_id": "137", "filesize": 300},
+                                                         {"format_id": "140", "filesize_approx": 100}]}
+
+    main.analyse()
+
+    assert main._overall.parts == 2
+    assert main._overall.percent(1.0) == 75.0
 
 
 def test_cancelled_download_removes_partial_files(monkeypatch, sent, request_globals, fake_ydl, tmp_path):
@@ -328,6 +357,28 @@ def test_cancelled_download_removes_partial_files(monkeypatch, sent, request_glo
 
     assert removed == [("h-drive", "3f2504e0-4f89-11d3-9a0c-0305e82c3301")]
     assert "DownloadCancelled" in sent[-1][1]["errorMsg"]
+
+
+def test_download_folder_comes_from_env_and_is_used_for_output(monkeypatch, request_globals):
+    monkeypatch.setenv("DOWNLOAD_FOLDER", "/home-drive/MS.VD.Distributor")
+    main.loadAppSettings()
+
+    assert main.getYtdlpOptions()["outtmpl"] == "/home-drive/MS.VD.Distributor/3f2504e0-4f89-11d3-9a0c-0305e82c3301.%(ext)s"
+
+
+def test_download_recreates_a_deleted_share_folder(monkeypatch, sent, request_globals, fake_ydl, tmp_path):
+    # Someone emptied vd: the next download must not fail with "Unable to create directory".
+    share = tmp_path / "vd" / "MS.VD.Distributor"
+    monkeypatch.setattr(main.appsettings, "DownloadFolder", str(share))
+    fake_ydl.info = VIDEO_INFO
+
+    main.download()
+
+    assert share.is_dir()
+
+
+def test_clearCancelledFiles_ignores_a_missing_folder(tmp_path):
+    main.clearCancelledFiles(str(tmp_path / "gone"), "abc")
 
 
 def test_clearCancelledFiles_removes_only_matching_files(tmp_path):

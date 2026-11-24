@@ -3,10 +3,14 @@ import { useManagerClient } from '../api/managerClientContext'
 import { describeError } from '../api/managerClient'
 import type { DownloadAction, DownloadProgress } from '../api/types'
 import { usePolling } from '../hooks/usePolling'
+import { useLiveDownloads } from '../hooks/useLiveDownloads'
+import type { LiveDownloadMessage } from '../api/liveDownloads'
 import { Alert } from './Alert'
 import { ProgressBar } from './ProgressBar'
 import { StatusBadge } from './StatusBadge'
 import { actionLabels, actionsFor } from './downloadActions'
+import { progressFor } from './progressFor'
+import { loadHidden, saveHidden } from './hiddenDownloads'
 
 function formatDate(value: string | undefined) {
   if (!value) return '–'
@@ -14,16 +18,21 @@ function formatDate(value: string | undefined) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
-/** The session's downloads, refreshed from the Manager every few seconds. */
+/**
+ * The session's downloads. Progress is pushed live (SignalR) when the Manager offers it; the list is still polled,
+ * every `intervalMs` when offline and every `liveIntervalMs` as a safety net while live.
+ */
 export function DownloadList({
   sessionId,
   initial = [],
   intervalMs = 3000,
+  liveIntervalMs = 30000,
   refreshKey = 0,
 }: {
   sessionId: string
   initial?: DownloadProgress[]
   intervalMs?: number
+  liveIntervalMs?: number
   /** Change it to refresh straight away (e.g. after queueing a download). */
   refreshKey?: number
 }) {
@@ -33,6 +42,17 @@ export function DownloadList({
   const [updated, setUpdated] = useState<Date | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  const [hidden, setHidden] = useState<Set<string>>(() => loadHidden(sessionId))
+
+  const visible = downloads.filter((d) => !d.clientId || !hidden.has(d.clientId))
+  const distributed = visible.filter((d) => d.status === 'DISTRIBUTED' && d.clientId)
+
+  function clearDistributed() {
+    const next = new Set(hidden)
+    for (const d of distributed) next.add(d.clientId!)
+    saveHidden(sessionId, next)
+    setHidden(next)
+  }
 
   async function act(download: DownloadProgress, action: DownloadAction) {
     if (!download.clientId) return
@@ -69,17 +89,45 @@ export function DownloadList({
     [client, sessionId, refreshKey, reload],
   )
 
-  usePolling(load, intervalMs)
+  const onProgress = useCallback((message: LiveDownloadMessage) => {
+    setDownloads((rows) =>
+      rows.map((r) =>
+        r.clientId === message.clientId
+          ? { ...r, status: message.status, progressPercentage: message.percent || r.progressPercentage }
+          : r,
+      ),
+    )
+    setUpdated(new Date())
+  }, [])
+  const onChanged = useCallback(() => setReload((n) => n + 1), [])
+  const live = useLiveDownloads(sessionId, onProgress, onChanged)
+
+  usePolling(load, live === 'live' ? liveIntervalMs : intervalMs)
 
   return (
     <section className="card" aria-label="Downloads">
       <div className="card-header">
         <h2>Downloads</h2>
-        <span className="hint">{updated ? `Updated ${updated.toLocaleTimeString()}` : 'Loading…'}</span>
+        {distributed.length > 0 && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={clearDistributed}
+            title="Hides delivered downloads from this list (they stay in the Manager)"
+          >
+            Clear distributed ({distributed.length})
+          </button>
+        )}
+        <span className="hint">
+          {live === 'live' && <span className="live-dot" title="Progress is pushed live from the Manager" aria-label="Live" />}
+          {updated ? `Updated ${updated.toLocaleTimeString()}` : 'Loading…'}
+        </span>
       </div>
       {error && <Alert tone="error">{error}</Alert>}
-      {downloads.length === 0 ? (
-        <p className="hint">No downloads in this session yet.</p>
+      {visible.length === 0 ? (
+        <p className="hint">
+          {downloads.length === 0 ? 'No downloads in this session yet.' : 'Nothing to show: delivered downloads were cleared.'}
+        </p>
       ) : (
         <div className="table-wrap">
           <table>
@@ -95,7 +143,7 @@ export function DownloadList({
               </tr>
             </thead>
             <tbody>
-              {downloads.map((download, index) => (
+              {visible.map((download, index) => (
                 <tr key={download.clientId ?? index}>
                   <td>
                     <div className="name">{download.requestedDownloadName || '(untitled)'}</div>
@@ -109,7 +157,7 @@ export function DownloadList({
                   </td>
                   <td>
                     <ProgressBar
-                      value={download.progressPercentage}
+                      value={progressFor(download)}
                       label={`Progress of ${download.requestedDownloadName || download.requestedUrl || 'download'}`}
                     />
                   </td>

@@ -40,6 +40,10 @@ public static class Telemetry
         Meter.CreateHistogram<double>("vd.updater.processing.duration", unit: "s",
             description: "Time to forward one progress message to the Manager");
 
+    public static readonly Counter<long> ManagerCallsSkipped =
+        Meter.CreateCounter<long>("vd.updater.progress.skipped",
+            description: "DOWNLOADING ticks sent to Redis only (not to the Manager/Postgres)");
+
     public static IServiceCollection AddVdTelemetry(this IServiceCollection services, IConfiguration configuration)
     {
         var serviceName = configuration["OTEL_SERVICE_NAME"] ?? ServiceName;
@@ -49,7 +53,8 @@ public static class Telemetry
             .WithTracing(t => t
                 .AddSource(Source.Name)
                 // The gRPC client uses HttpClient: this records the call and sends traceparent to the Manager.
-                .AddHttpClientInstrumentation())
+                .AddHttpClientInstrumentation()
+                .AddRedisInstrumentation())
             .WithMetrics(m => m
                 .AddMeter(Meter.Name)
                 .AddHttpClientInstrumentation()
@@ -90,6 +95,7 @@ public static class Telemetry
     {
         foreach (var status in new[] { "ANALYSIS", "DOWNLOADING", "FINISHED", "ERRORED", "EXTRACT_INFO", "VERSION" })
             MessagesProcessed.Add(0, new KeyValuePair<string, object>(StatusTag, status));
+        ManagerCallsSkipped.Add(0);
     }
 
     /// <summary>Starts a consumer span that continues the trace in the message's traceparent header, if any.</summary>

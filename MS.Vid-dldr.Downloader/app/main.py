@@ -9,6 +9,10 @@ import producer as dlUpdates
 from observability import telemetry
 from observability import health
 import control
+from overall_progress import OverallProgress, part_fraction
+
+# The parts (video, audio) of the current download; set by analyse().
+_overall = OverallProgress()
 from opentelemetry import trace
 import pika
 import format as f
@@ -17,7 +21,7 @@ import helper as h
 import appsettings
 import os
 
-# INFO: ydl_opts 
+# INFO: ydl_opts
 # https://github.com/ytdl-org/youtube-dl/blob/3e4cedf9e8cd3157df2457df7274d0c842421945/youtube_dl/YoutubeDL.py#L137-L312
 # https://github.com/ytdl-org/youtube-dl/blob/3e4cedf9e8cd3157df2457df7274d0c842421945/youtube_dl/downloader/common.py
 
@@ -58,11 +62,11 @@ def getValue(obj, key):
     try:
         value = obj.get(key)
     except KeyError:
-        value = None   
+        value = None
 
     if value == "" or value == None or value == "None" or value == 'N/A':
         return ""
-    
+
     return value
 
 def getProgressValue(obj, key):
@@ -88,40 +92,42 @@ def progressHooks(msg):
     status = getProgressValue(msg, 'status')
 
     progress = {
-        'managerId': _managerId, 
+        'managerId': _managerId,
         'activity': h.getDateTimeNowHuman(),
         'status': c.DownloadStatusTypeNone if status == None else status
     }
-    
+
     if msg['status'] == "downloading":
         pc = getProgressValue(msg, '_percent_str')
-        eta = getProgressValue(msg, '_eta_str')
-        if eta != "00:00" and pc != "100.0%": #BUG: - Progress hooks stop on odd occasions: i) eta - under 100% but 00:00, ii) pc - Finished status is never shown. TODO: look at part file?
 
-            if(hasDownloadStalled(pc)):
-                #global _downloadStalledTimeoutSeconds
-                raise yt_dlp.DownloadCancelled(f"Downloaded cancelled after {_downloadStalledTimeoutSeconds} seconds at {pc}")
+        if(hasDownloadStalled(pc)):
+            raise yt_dlp.DownloadCancelled(f"Downloaded cancelled after {_downloadStalledTimeoutSeconds} seconds at {pc}")
 
-            progress['status'] = c.DownloadStatusTypeDownloading
-            progress['eta'] = eta
-            progress['speed'] = getProgressValue(msg, '_speed_str')
-            progress['percent'] = pc
-            progress['total_bytes'] = getProgressValue(msg, '_total_bytes_str')
-            progress['downloaded_bytes'] = getProgressValue(msg, '_downloaded_bytes_str')
-            progress['elapsed'] = getProgressValue(msg, '_elapsed_str')
-            progress['default_template'] = getProgressValue(msg, '_default_template')
-            progress['filename'] = getProgressValue(msg, 'filename')
-        else:
-            progress['status'] = c.DownloadStatusTypeFinished   
+        # One figure across the parts (video + audio), never 100% before download() reports FINISHED.
+        overall = min(99.9, _overall.percent(part_fraction(msg, pc)))
+        progress['status'] = c.DownloadStatusTypeDownloading
+        progress['eta'] = getProgressValue(msg, '_eta_str')
+        progress['speed'] = getProgressValue(msg, '_speed_str')
+        progress['percent'] = f"{overall:.1f}%"
+        progress['total_bytes'] = getProgressValue(msg, '_total_bytes_str')
+        progress['downloaded_bytes'] = getProgressValue(msg, '_downloaded_bytes_str')
+        progress['elapsed'] = getProgressValue(msg, '_elapsed_str')
+        progress['default_template'] = getProgressValue(msg, '_default_template')
+        progress['filename'] = getProgressValue(msg, 'filename')
     elif msg['status'] == "finished":
-        progress['status'] = c.DownloadStatusTypeFinished   
+        # A part is done (for a YouTube video, the video stream and later the audio stream). FINISHED is sent once,
+        # by download(), after yt-dlp has merged and moved the file: the Distributor must not see a half-made file.
+        last = _overall.part_finished()
+        progress['status'] = c.DownloadStatusTypeDownloading
+        progress['percent'] = "99.9%" if last else f"{_overall.percent(0):.1f}%"
+        progress['filename'] = getProgressValue(msg, 'filename')
     else:
         h.printLog(f"Unknown progress status: {msg['status']}")
         progress['status'] = c.DownloadStatusTypeErrored
         progress['errorMsg'] = f"Unknown progress status: {msg['status']} - {msg}"
-    
+
     dlUpdates.Send(appsettings.QueueDownloadUpdate, json.dumps(progress), appsettings.ChannelHost, appsettings.ChannelPortNumber)
-    
+
 def stopIfRequested():
     """Raises StopRequested when the Manager asked to pause or cancel this download."""
     action = control.requests.take(_managerId)
@@ -134,14 +140,21 @@ def stopped(action, when):
     trace.get_current_span().set_attribute("vd.control.action", action)
     health.worker.job_stopped(action)
     if action == control.CANCEL:
-        clearCancelledFiles("h-drive", _downloadId)
+        clearCancelledFiles(appsettings.DownloadFolder, _downloadId)
 
 def onControlRequest(managerId, action, downloadId):
     """Listener thread. A paused download has no running job to clean up, so cancelling it deletes its partial file
     here; a running job is stopped (and cleaned up) by its own progress hook."""
     if action == control.CANCEL and downloadId and health.worker.current_manager_id() != managerId:
-        clearCancelledFiles("h-drive", downloadId)
+        clearCancelledFiles(appsettings.DownloadFolder, downloadId)
         h.printLog(f"Deleted the partial files of cancelled download {managerId}")
+
+def sendFinished():
+    dlUpdates.Send(appsettings.QueueDownloadUpdate, json.dumps({
+        'managerId': _managerId,
+        'activity': h.getDateTimeNowHuman(),
+        'status': c.DownloadStatusTypeFinished
+    }), appsettings.ChannelHost, appsettings.ChannelPortNumber)
 
 def postProcessorHooks(msg):
     h.printLog(f"main.postProcessorHooks: {msg['status']}, {msg['postprocessor']}")
@@ -154,7 +167,7 @@ def sendError(msg):
     h.printLog(f"ERROR: download {_managerId}: {msg}")
 
     progress = {
-        'managerId': _managerId,    
+        'managerId': _managerId,
         'activity': h.getDateTimeNowHuman(),
         'status': c.DownloadStatusTypeErrored,
         'errorMsg': msg
@@ -169,15 +182,18 @@ def download():
     ydl_opts = getYtdlpOptions()
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        
+
         try:
             if(analyse()):
                 resetDownloadStalled()
                 stopIfRequested()  # paused / cancelled while it was being analysed
+                # The share folder may have been deleted since the last download: make it again.
+                os.makedirs(appsettings.DownloadFolder, exist_ok=True)
 
                 errorCode = ydl.download(_url)
                 # errorMsg must be a string: the updater deserialises it into a C# string.
                 if errorCode: sendError(f"yt-dlp download failed with error code {errorCode}")
+                else: sendFinished()
         except control.StopRequested as stop:
             # Pause keeps the .part file for resume; cancel deletes it.
             stopped(stop.action, "while downloading")
@@ -185,7 +201,7 @@ def download():
             errorMessage = repr(e)
 
             if("DownloadCancelled" in errorMessage):
-                clearCancelledFiles("h-drive", _downloadId)
+                clearCancelledFiles(appsettings.DownloadFolder, _downloadId)
 
             sendError(errorMessage)
 
@@ -196,20 +212,23 @@ def analyse():
     result = True
 
     info = None
-    
-    with yt_dlp.YoutubeDL() as ydl:
-        
+
+    # The download's own format choice, so requested_formats lists the parts the download will fetch.
+    options = getYtdlpOptions()
+    with yt_dlp.YoutubeDL({'format': options['format'], 'format_sort': options['format_sort']}) as ydl:
+
         try:
             info = ydl.extract_info(_url, download=False)
         except Exception as e:
             h.printLog(f"Caught inner exception on ydl.extract_info when web page doesnt contain a video & then works as expected: {repr(e)}")
         finally:
+            _overall.reset(OverallProgress.part_sizes(info) if info else [])
             if info:
                 liveStatus = str(getValue(info, "live_status"))
 
                 if(liveStatus != "is_live"):
                     dlUpdates.Send(appsettings.QueueDownloadUpdate, json.dumps({
-                        "managerId": _managerId,    
+                        "managerId": _managerId,
                         "videoId": getValue(info, "id"),
                         "videoTitle": getValue(info, "title"),
                         "videoDescription": getValue(info, "description"),
@@ -238,9 +257,9 @@ def extract():
     info = None
 
     ydl_opts = getYtdlpOptions()
-    
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        
+
         try:
             info = ydl.extract_info(_url, download=False)
         except Exception as e:
@@ -272,7 +291,7 @@ def handle_message(channel, method_frame, header_frame, body):
 
     request = {}
 
-    if body: 
+    if body:
 
         request = json.loads(body)
         h.printLog(request)
@@ -346,14 +365,14 @@ def getIntValue(request, key, default):
 def getYtdlpOptions():
     #h.printLog("main.getYtdlpOptions()")
 
-    return { 
+    return {
         'format': f'bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best[ext=mp4]',
         'format_sort': ['ext', 'res:1080', '+vbr'],
         'logger': MyLogger(),
         'progress_hooks': [progressHooks],
         'postprocessor_hooks': [postProcessorHooks],
         'verbose': True,
-        'outtmpl': f"h-drive/{_downloadId}.%(ext)s",
+        'outtmpl': f"{appsettings.DownloadFolder}/{_downloadId}.%(ext)s",
         'cachedir': False,
         # A resumed download continues its .part file; anything else starts clean (overwrites implies no-continue).
         'overwrites': not _resume,
@@ -391,6 +410,8 @@ def loadAppSettings():
     appsettings.DefaultTimeoutSeconds = getEnvInt('DEFAULT_TIMEOUT_SECONDS', appsettings.DefaultTimeoutSeconds)
     h.printLog("appsettings.DefaultTimeoutSeconds: " + str(appsettings.DefaultTimeoutSeconds))
     appsettings.DefaultDownloadStalledTimeoutSeconds = getEnvInt('DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS', appsettings.DefaultDownloadStalledTimeoutSeconds)
+    appsettings.DownloadFolder = os.getenv('DOWNLOAD_FOLDER', appsettings.DownloadFolder) or appsettings.DownloadFolder
+    h.printLog("appsettings.DownloadFolder: " + str(appsettings.DownloadFolder))
     h.printLog("appsettings.DefaultDownloadStalledTimeoutSeconds: " + str(appsettings.DefaultDownloadStalledTimeoutSeconds))
 
 def resetDownloadStalled():
@@ -415,9 +436,12 @@ def hasDownloadStalled(progressPercentage):
         return False
     else:
         return h.getDateDiff(h.getDateTimeNow(), _progressHookLastPercentageFirstDate) > _downloadStalledTimeoutSeconds
-            
+
 def clearCancelledFiles(filepath, filename):
     #h.printLog(f"main.clearCancelledFiles(filename: {filename})")
+
+    if not os.path.isdir(filepath):
+        return
 
     for fname in os.listdir(filepath):
         if fname.startswith(str(filename)):

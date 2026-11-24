@@ -16,3 +16,6 @@ global DefaultTimeoutSeconds
 DefaultTimeoutSeconds = 30
 global DefaultDownloadStalledTimeoutSeconds
 DefaultDownloadStalledTimeoutSeconds = 138
+
+# Where downloads are written (the Distributor's share folder). Created when missing.
+DownloadFolder = "h-drive"

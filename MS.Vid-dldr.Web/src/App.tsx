@@ -30,7 +30,7 @@ export default function App() {
                 Change
               </button>
             </div>
-            <DownloadForm sessionId={session.id} onQueued={() => setRefreshKey((key) => key + 1)} />
+            <DownloadForm sessionId={session.id} defaultFolder={session.defaultFolder} onQueued={() => setRefreshKey((key) => key + 1)} />
             <DownloadList sessionId={session.id} refreshKey={refreshKey} />
           </>
         ) : (

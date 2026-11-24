@@ -17,6 +17,8 @@ public class DistributorService : IHostedService, IDistributorService
 {
     private static IAppSettings _appSettings;
     private FileSystemWatcher _fileSystemWatcher = null;
+    private Timer _shareFolderCheck;
+    private readonly object _watcherLock = new();
     private static HttpClient _httpClient = null;
 
     public DistributorService(IAppSettings appSettings, IHttpClientFactory httpClientFactory)
@@ -34,29 +36,63 @@ public class DistributorService : IHostedService, IDistributorService
     {
         WriteLog(Constantss.LogStatusCall, $"StartAsync(CancellationToken cancellationToken)");
 
-        if (!Directory.Exists(_appSettings.DownloaderShareFilePath))
+        // The share (distribution) folder the Downloader writes to: create it when missing, in every build.
+        if (FolderHelper.EnsureFolder(_appSettings.DownloaderShareFilePath, out var shareCreated, out var shareError))
         {
-#if !DEBUG
-            WriteLog(Constantss.LogStatusErr, $"{_appSettings.DownloaderShareFilePath} does not exist!");
-            Console.ReadLine();
-#else
-            Directory.CreateDirectory(_appSettings.DownloaderShareFilePath);
-#endif
+            if (shareCreated) WriteLog(Constantss.LogStatusWarn, $"Created the share folder {_appSettings.DownloaderShareFilePath}");
+        }
+        else
+        {
+            WriteLog(Constantss.LogStatusErr, shareError!);
         }
 
         CleanUpFiles();
 
-        _fileSystemWatcher = new FileSystemWatcher();
-        _fileSystemWatcher.Path = _appSettings.DownloaderShareFilePath;
+        StartWatcher();
 
-        _fileSystemWatcher.NotifyFilter = NotifyFilters.FileName;
-
-        _fileSystemWatcher.Renamed += fileSystemWatcher_Renamed;
-        _fileSystemWatcher.Error += fileSystemWatcher_OnError;
-
-        _fileSystemWatcher.EnableRaisingEvents = true;
+        // A FileSystemWatcher doesn't always report its folder being deleted, so look every 30 s as well.
+        _shareFolderCheck = new Timer(_ => CheckShareFolder(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
 
         return Task.CompletedTask;
+    }
+
+    private void StartWatcher()
+    {
+        lock (_watcherLock)
+        {
+            _fileSystemWatcher?.Dispose();
+            _fileSystemWatcher = new FileSystemWatcher();
+            _fileSystemWatcher.Path = _appSettings.DownloaderShareFilePath;
+
+            _fileSystemWatcher.NotifyFilter = NotifyFilters.FileName;
+
+            _fileSystemWatcher.Renamed += fileSystemWatcher_Renamed;
+            _fileSystemWatcher.Error += fileSystemWatcher_OnError;
+
+            _fileSystemWatcher.EnableRaisingEvents = true;
+        }
+    }
+
+    /// <summary>Recreates a deleted share folder and watches the new one (a watcher on a deleted folder sees nothing).</summary>
+    public void CheckShareFolder()
+    {
+        try
+        {
+            if (!FolderHelper.EnsureFolder(_appSettings.DownloaderShareFilePath, out var created, out var error))
+            {
+                WriteLog(Constantss.LogStatusWarn, error!);
+                return;
+            }
+            if (created)
+            {
+                WriteLog(Constantss.LogStatusWarn, $"The share folder was missing; created {_appSettings.DownloaderShareFilePath} again");
+                StartWatcher();
+            }
+        }
+        catch (Exception ex)
+        {
+            WriteLog(Constantss.LogStatusEx, $"Share folder check failed: {ex.Message}");
+        }
     }
 
     private async void fileSystemWatcher_Renamed(object sender, RenamedEventArgs e)
@@ -92,9 +128,10 @@ public class DistributorService : IHostedService, IDistributorService
             try
             {
                 _fileSystemWatcher.EnableRaisingEvents = false;
-                if (!Directory.Exists(_fileSystemWatcher.Path))
+                // Deleted while running: create it again. A network share that is offline still fails here, so wait.
+                if (!FolderHelper.EnsureFolder(_fileSystemWatcher.Path, out _, out var reconnectError))
                 {
-                    WriteLog(Constantss.LogStatusWarn, $"Directory Inaccessible {_fileSystemWatcher.Path}");
+                    WriteLog(Constantss.LogStatusWarn, $"Directory Inaccessible {_fileSystemWatcher.Path}: {reconnectError}");
                     Thread.Sleep(iTimeOut);
                 }
                 else
@@ -131,6 +168,7 @@ public class DistributorService : IHostedService, IDistributorService
     {
         WriteLog(Constantss.LogStatusCall, $"StopAsync(CancellationToken cancellationToken)");
 
+        _shareFolderCheck?.Dispose();
         if (_appSettings.CallManagerApiViaRest) _httpClient.Dispose();
 
         return Task.CompletedTask;
@@ -192,12 +230,14 @@ public class DistributorService : IHostedService, IDistributorService
                 return false;
             }
 
-            if (!Directory.Exists(downloadFileInfo.RequestedDownloadFolder))
+            // The deployment folder (e.g. ...\vd\1380): create it when missing.
+            if (!FolderHelper.EnsureFolder(downloadFileInfo.RequestedDownloadFolder, out var folderCreated, out var folderError))
             {
-                WriteLog(Constantss.LogStatusErr, $"Folder downloadFileInfo.RequestedDownloadFolder: {downloadFileInfo.RequestedDownloadFolder} doesnt exist!");
-                await DeleteFileFromShareFolderAndUpdateStatusAsync(clientId, filePath, $"Requested folder doesnt exist {downloadFileInfo.RequestedDownloadFolder}");
+                WriteLog(Constantss.LogStatusErr, folderError!);
+                await DeleteFileFromShareFolderAndUpdateStatusAsync(clientId, filePath, $"Requested folder could not be created {downloadFileInfo.RequestedDownloadFolder}");
                 return false;
             }
+            if (folderCreated) WriteLog(Constantss.LogStatusInfo, $"Created the deployment folder {downloadFileInfo.RequestedDownloadFolder}");
 
             if (string.IsNullOrWhiteSpace(downloadFileInfo.RequestedDownloadName)) downloadFileInfo.RequestedDownloadName = clientId;
             var requestedFilePath = $"{downloadFileInfo.RequestedDownloadFolder}//{downloadFileInfo.RequestedDownloadName}.{prevFileExtension}";

@@ -13,10 +13,18 @@ interface Message {
 }
 
 /** Queues a download on the Manager, which sends it to the Downloader over RabbitMQ (MassTransit). */
-export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQueued?: (clientId: string) => void }) {
+export function DownloadForm({
+  sessionId,
+  defaultFolder,
+  onQueued,
+}: {
+  sessionId: string
+  /** The session's deployment folder: the Distributor moves every finished download there. */
+  defaultFolder?: string
+  onQueued?: (clientId: string) => void
+}) {
   const client = useManagerClient()
   const [url, setUrl] = useState('')
-  const [folder, setFolder] = useState('')
   const [name, setName] = useState('')
   const [ext, setExt] = useState('mp4')
   const [retryCount, setRetryCount] = useState(3)
@@ -26,6 +34,7 @@ export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQue
   const [busy, setBusy] = useState<'download' | 'formats' | null>(null)
   const [message, setMessage] = useState<Message | null>(null)
   const [formats, setFormats] = useState<Format[] | null>(null)
+  const [formatsOpen, setFormatsOpen] = useState(true)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -34,7 +43,8 @@ export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQue
     const request: RequestDownloadRequest = {
       downloadSessionId: sessionId,
       requestedUrl: url.trim(),
-      requestedDownloadFolder: folder.trim(),
+      // Always the session's deployment folder (the Manager fills it in from the deployment no.).
+      requestedDownloadFolder: '',
       requestedDownloadName: name.trim(),
       requestedDownloadExt: ext,
       requestedRetryCount: retryCount,
@@ -68,6 +78,7 @@ export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQue
     try {
       const response = await client.extractFormats({ downloadSessionId: sessionId, requestedUrl: url.trim(), timeoutMs: 0 })
       setFormats(response.extractInfo?.formats ?? [])
+      setFormatsOpen(true)
     } catch (error) {
       setMessage({ tone: 'error', text: describeError(error) })
     } finally {
@@ -82,11 +93,12 @@ export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQue
         Video URL
         <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" required />
       </label>
-      <div className="grid-3">
-        <label>
-          Folder
-          <input value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="Manager default" />
-        </label>
+      {defaultFolder && (
+        <p className="hint">
+          Saved to <code>{defaultFolder}</code>
+        </p>
+      )}
+      <div className="grid-2">
         <label>
           File name
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Video title" />
@@ -135,7 +147,29 @@ export function DownloadForm({ sessionId, onQueued }: { sessionId: string; onQue
         </button>
       </div>
 
-      {formats && <FormatsTable formats={formats} onUseExtension={setExt} />}
+      {formats && (
+        <div className="formats">
+          <div className="formats-header">
+            <span className="hint">
+              {formats.length} format{formats.length === 1 ? '' : 's'} found
+            </span>
+            <button
+              type="button"
+              className="link"
+              aria-expanded={formatsOpen}
+              aria-controls="formats-table"
+              onClick={() => setFormatsOpen((open) => !open)}
+            >
+              {formatsOpen ? 'Hide formats' : 'Show formats'}
+            </button>
+          </div>
+          {formatsOpen && (
+            <div id="formats-table">
+              <FormatsTable formats={formats} onUseExtension={setExt} />
+            </div>
+          )}
+        </div>
+      )}
     </form>
   )
 }

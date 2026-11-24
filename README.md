@@ -2,8 +2,24 @@
 
 A set of services for downloading videos with yt-dlp. Clients send download requests to the **Manager** gRPC API. The
 Manager stores them in PostgreSQL and queues them on RabbitMQ. The **Downloader** picks them up and runs yt-dlp. The
-**DownloadUpdater** sends progress back to the Manager. **Ytdlp** keeps yt-dlp up to date, and **Distributor** moves
-finished files to their destination.
+**DownloadUpdater** sends progress back to the Manager, and writes every progress tick to **Redis**, from where the
+Manager pushes it to browsers over SignalR. **Ytdlp** keeps yt-dlp up to date, and **Distributor** moves finished files
+to their destination.
+
+```mermaid
+flowchart LR
+    Web[React web app] -- REST --> Mgr[Manager]
+    Web <-. SignalR live progress .- Mgr
+    Mgr -- SQL --> PG[(Postgres: the record)]
+    Mgr -- request / pause / cancel --> RMQ{{RabbitMQ: the work}}
+    RMQ --> DL[Downloader yt-dlp]
+    DL -- progress --> RMQ
+    RMQ --> UPD[DownloadUpdater]
+    UPD -- state changes + 30 s checkpoint, gRPC --> Mgr
+    UPD -- every tick: HSET + PUBLISH --> R[(Redis: live, ephemeral)]
+    R -- SUBSCRIBE --> Mgr
+    Dist[Distributor, Windows] -- gRPC --> Mgr
+```
 
 ## Layout
 
@@ -12,7 +28,7 @@ finished files to their destination.
 | `MS.Vid-dldr.Manager/` | gRPC API (+ JSON transcoding / Swagger), EF Core + PostgreSQL, MassTransit (RabbitMQ) sender | .NET 11 |
 | `MS.Vid-dldr.Manager.Tests/` | xUnit tests for the Manager (sibling folder so the web SDK doesn't compile them into the API) | .NET 11 |
 | `MS.Vid-dldr.Downloader/` | RabbitMQ consumer that runs yt-dlp | Python 3.12 |
-| `MS.Vid-dldr.DownloadUpdater/` | Forwards download progress from RabbitMQ to the Manager over gRPC | .NET 11 |
+| `MS.Vid-dldr.DownloadUpdater/` | Forwards download progress from RabbitMQ to the Manager over gRPC, and every tick to Redis | .NET 11 |
 | `MS.Vid-dldr.DownloadUpdater.Tests/` | xUnit tests for the DownloadUpdater | .NET 11 |
 | `MS.Vid-dldr.Ytdlp/` | Checks and reports yt-dlp versions via the Manager | .NET 11 |
 | `MS.Vid-dldr.Ytdlp.Tests/` | xUnit tests for Ytdlp | .NET 11 |
@@ -121,7 +137,7 @@ on Windows file locking and fails on Linux (it did before the .NET 11 upgrade to
 | `setGlobals` / `getYtdlpOptions` | request values; int defaults when the Manager's string values are null or empty; output template, retries, timeout |
 | `loadAppSettings` | env strings converted (`IS_DEBUG_MODE=False` → `False`, port / retry / timeout → int); defaults without env |
 | Stall detection | `hasDownloadStalled` timer and reset; `progressHooks` raises `DownloadCancelled` when stalled |
-| `progressHooks` | DOWNLOADING update fields, FINISHED (eta `00:00`, `100.0%`, finished), ERRORED for unknown status |
+| `progressHooks` | DOWNLOADING update fields; one percentage across a video + audio download (`overall_progress.py`, weighted by part size); never FINISHED (`download()` sends that once, after the merge); ERRORED for unknown status |
 | `on_message_received` | VERSION reply, routing to download / analyse / extract, unsupported type, empty body, ack |
 | `analyse` / `extract` / `download` | with a fake `yt_dlp.YoutubeDL`: video details, live streams rejected, extract errors logged, formats sent, error code sent as text, cancelled download clears partial files |
 | Helpers | `getDateDiff` (including whole days), `activity` date format, `getSoftwareVersion`, `printLog`, `serializeDatetime`, `clearCancelledFiles` |
@@ -173,20 +189,31 @@ repo instead: `cd MS.Vid-dldr.Distributor; dotnet run`.
 
 How a download reaches its folder:
 
-1. The Downloader saves `<clientId>.<ext>` in the share folder (e.g. `C:\Users\<you>\Videos\vd\MS.VD.Distributor`):
-   `HOME_DRIVE_PATH` in `.env.dev` mounts it into the container, and the Distributor's `DownloaderShareFilePath` points
-   at the same folder. Change both together.
-2. The Distributor sees the rename that ends the download, asks the Manager where the file goes, moves it to
+1. Starting a session creates its **deployment folder**, `vd\<deployment no.>` (e.g. `C:\Users\<you>\Videos\vd\1380`).
+2. The Downloader saves `<clientId>.<ext>` in the share folder `vd\MS.VD.Distributor`. The Dev compose mounts the `vd`
+   folder (`MANAGER_HOME_DRIVE_PATH`) into the Downloader at `/home-drive` and sets `DOWNLOAD_FOLDER` to
+   `/home-drive/MS.VD.Distributor` (`SHARE_FOLDER_NAME` renames it). It mounts `vd`, not the share folder itself: a
+   mount of a folder that is later deleted stays broken ("Unable to create directory: File exists"), whereas a deleted
+   share folder is simply made again by the next download, and by the Distributor (at start-up and every 30 s). The
+   Distributor's `DownloaderShareFilePath` must be the same folder.
+3. The Distributor sees the rename that ends the download, asks the Manager where the file goes, moves it to
    `<RequestedDownloadFolder>\<RequestedDownloadName>.<ext>` and marks the download DISTRIBUTED. Until then it stays
    FINISHED.
-3. The Distributor sends a user name: `DistributorUsername`, by default the **Windows user it runs as**. The Manager
+4. The Distributor sends a user name: `DistributorUsername`, by default the **Windows user it runs as**. The Manager
    only returns downloads whose session has that username, so in production (several users, one network share) each
    Distributor delivers only its own user's files, and a session started under another name stays in the share
    folder. On a single-user machine set `"DistributorUsername": "*"` in `appsettings.Local.json` to deliver everyone's
    downloads; the Manager allows `*` only when `AppSettings:AllowAnyUserDistribution` is true (the Dev compose sets
    it, production doesn't).
-4. If the requested folder doesn't exist, the Distributor **deletes** the file and marks the download DELETED. An empty
-   folder in the request means `AppSettings:HomeDrivePath` + deployment number (`MANAGER_HOME_DRIVE_PATH`, e.g. `C:\Users\<you>\Videos\vd\<deployment no>\`).
+5. The file goes to the session's deployment folder: `AppSettings:HomeDrivePath` + deployment number
+   (`MANAGER_HOME_DRIVE_PATH`, e.g. `C:\Users\<you>\Videos\vd\1380\`). The web app always uses it and shows it under
+   the URL; it has no folder box (an API client can still send its own `requestedDownloadFolder`). The session creates
+   the deployment folder: the
+   Dev compose mounts `MANAGER_HOME_DRIVE_PATH` into the Manager at `/home-drive` (`AppSettings:HomeDriveMountPath`),
+   and only plain folder names are created (no `..` or separators). Without that mount (production) the folder is
+   made on delivery instead: the Distributor **creates** the requested folder when it is missing, and
+   the share folder too (at start-up, in every build, and again if it is deleted while running). Only a folder it can't
+   create (a relative path, no access, a path under a file) makes it delete the file and mark the download DELETED.
 
 Manager only, locally:
 
@@ -233,6 +260,32 @@ Limitation: control messages reach only Downloaders that are running (their queu
 down when you cancel, the Manager still shows CANCELLED and ignores its updates, but a download it picks up later may
 still complete and be distributed.
 
+## Live progress (Redis + SignalR)
+
+RabbitMQ still carries the **work** (requests, progress messages, pause/cancel) and Postgres is still the **record**.
+Redis only holds what is true *right now* about running downloads, and is allowed to lose it.
+
+| Step | Who | What |
+| --- | --- | --- |
+| 1 | Downloader | sends each yt-dlp progress tick to `ms_vd_q_downloadUpdate`. A YouTube download is two parts (video, then audio, then a merge); the ticks carry one overall percentage, weighted by part size, and FINISHED is sent once, after the merge, so the bar runs 0-100% once and the Distributor never sees a half-made file |
+| 2 | DownloadUpdater | writes the tick to the hash `vd:progress:{id}` (10 min TTL) and `PUBLISH`es it on `vd:progress` |
+| 3 | DownloadUpdater | sends the Manager (Postgres) only state changes, the first tick, the first tick after a 10 s gap (a resume) and one tick per `AppSettings:ProgressCheckpointSeconds` (30). If Redis is down it sends every tick, as before |
+| 4 | Manager | `RedisProgressRelay` subscribes to `vd:progress` and pushes `progress` / `changed` to the SignalR group of the download's session (`/hubs/downloads`, `JoinSession(sessionId)`) |
+| 5 | Manager | `GetDownloadsBySessionId` overlays the Redis percent on running downloads; a PAUSED/CANCELLED/FINISHED/ERRORED saved in Postgres always wins |
+| 6 | Web | `DownloadList` updates the row in place on `progress`, re-reads on `changed`, and polls every 30 s while live (every 3 s when not). A green dot shows it is live. Finished downloads show 100% (the Manager clears the percentage then) |
+
+Every Manager instance subscribes to the channel and pushes to its own connections, so there is deliberately **no
+SignalR Redis backplane**: with one, each event would reach the browser once per instance.
+
+Measured on the Dev stack (30 MB file throttled to 300 KB/s, 107 s): 112 pushes over a WebSocket, the list matched the
+latest push at 45 s, and the `Downloads` table took **9 row updates instead of about 115**. Metrics:
+`vd.updater.progress.skipped` (ticks kept out of Postgres) and `vd.live.pushes` (by `vd.live.kind`).
+
+nginx (`/hubs/` with the WebSocket upgrade headers) and the Vite dev proxy (`ws: true`) forward the hub, so the browser
+stays same-origin. Settings: `ConnectionStrings:Redis` for the Manager and DownloadUpdater (default
+`redis:6379,abortConnect=false` in the Updater, `localhost:6379` for a `dotnet run` Manager). The Prod and Test compose
+files have no Redis yet; the services start without it and behave as before.
+
 ## Health checks
 
 The Manager answers two questions (ASP.NET Core health checks, `MS.Vid-dldr.Manager/Health`):
@@ -240,7 +293,7 @@ The Manager answers two questions (ASP.NET Core health checks, `MS.Vid-dldr.Mana
 | Endpoint | Question | Checks | Used by |
 | --- | --- | --- | --- |
 | `/health/live` | Is the process running? | none | Docker `healthcheck` (restart decisions, `depends_on`) |
-| `/health/ready` | Can it do its job? | `database` (Postgres), `masstransit-bus` (RabbitMQ, added by MassTransit), `downloader` (a consumer on its queue, then the Downloader's own `/health`), `updater` (a consumer on its queue, from the RabbitMQ management API) | the web app's status badge, `IsServiceUp`, the `vd.health.status` metric and the Grafana alert |
+| `/health/ready` | Can it do its job? | `database` (Postgres), `masstransit-bus` (RabbitMQ, added by MassTransit), `downloader` (a consumer on its queue, then the Downloader's own `/health`), `updater` (a consumer on its queue, from the RabbitMQ management API), `redis` (PING) | the web app's status badge, `IsServiceUp`, the `vd.health.status` metric and the Grafana alert |
 
 `/health/ready` returns JSON (`status`, then `name`, `status`, `description`, `durationMs`, `data` for each check) with
 HTTP 200 for Healthy or Degraded and 503 for Unhealthy:
@@ -249,7 +302,8 @@ HTTP 200 for Healthy or Degraded and 503 for Unhealthy:
 - **Degraded:** no Downloader or DownloadUpdater is consuming its queue ("No Downloader is consuming
   ms_vd_q_downloadRequest (4 message(s) waiting)"). Requests are still accepted; they wait in the queue. More than 10
   consumers on a queue is also Degraded ("possible consumer leak"), which would have caught the DownloadUpdater's
-  258,283 consumers. A Downloader that is connected but stuck is Degraded too (see below).
+  258,283 consumers. A Downloader that is connected but stuck is Degraded too (see below). Redis being down is
+  Degraded as well: downloads carry on, the list falls back to polling and Postgres gets every tick again.
 
 ### The Downloader's own health
 
@@ -460,6 +514,10 @@ own RabbitMQ clients.
 status badge from `/health/ready`. In the Dev compose it is the `web` service on http://localhost:8080 (nginx serving
 the build and proxying `/v1` and `/health` to the Manager). For development, `npm run dev` in that folder proxies to a
 Manager on `localhost:8000`. See `MS.Vid-dldr.Web/README.md`.
+
+- **Formats:** "Check formats" lists what yt-dlp found; Hide formats / Show formats collapses the table.
+- **Clear distributed (n):** hides delivered downloads from the list. It only hides them in this browser
+  (`localStorage`, per session); the Manager keeps the records for history, the dashboard and the Distributor.
 
 ## Resilience
 
