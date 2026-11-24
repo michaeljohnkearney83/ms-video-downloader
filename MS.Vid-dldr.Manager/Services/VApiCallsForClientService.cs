@@ -8,13 +8,15 @@ using MS.Vid_dldr.Manager.Protos.FromClient;
 using MS.Vid_dldr.Manager.Data;
 using MS.Vid_dldr.Manager.Entities;
 using MS.Vid_dldr.Manager.Dtos;
-using MS.Vid_dldr.Manager.RabbitMq;
+using MS.Vid_dldr.Manager.Messaging;
 using MS.Vid_dldr.Manager.Helpers;
 using MS.Vid_dldr.Manager.Protos.Common;
 using System.Text;
 using MS.Vid_dldr.Manager.Dtos.Extract;
 using MS.Vid_dldr.Manager.Mappers;
 using System.Net.Http.Headers;
+using System.Diagnostics;
+using MS.Vid_dldr.Manager.Observability;
 
 namespace MS.Vid_dldr.Manager.Services;
 
@@ -26,17 +28,17 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
     private readonly IMapper _mapper;
     private readonly IAppSettings _appSettings;
     private readonly IServiceHelper _serviceHelper;
-    private readonly RMQProducer _rmqProducer;
+    private readonly IDownloadRequestPublisher _publisher;
 
-    public VdApiCallsForClientService(ILogger<VdApiCallsForClientService> logger, AppDbContext dbContext, IMapper mapper, IAppSettings appSettings, IServiceHelper serviceHelper)
+    public VdApiCallsForClientService(ILogger<VdApiCallsForClientService> logger, AppDbContext dbContext, IMapper mapper, IAppSettings appSettings, IServiceHelper serviceHelper,
+        IDownloadRequestPublisher publisher)
     {
         _logger = logger;
         _dbContext = dbContext;
         _mapper = mapper;
         _appSettings = appSettings;
         _serviceHelper = serviceHelper;
-
-        _rmqProducer = new RMQProducer(_appSettings.ChannelHostName, _appSettings.ChannelPortNumber, _appSettings.QueueRequestDownload);
+        _publisher = publisher;
     }
 
     public override async Task<GetSessionIdResponse> GetSessionId(GetSessionIdRequest request, ServerCallContext context)
@@ -145,6 +147,7 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
                 throw new RpcException(new Grpc.Core.Status(StatusCode.InvalidArgument, $"The filepath exceeds the max length {_appSettings.MaxFilepathLength}"));
 
             var clientId = Guid.NewGuid();
+            Activity.Current?.SetTag(Telemetry.ClientIdTag, clientId.ToString());
             var activeDownloadExists = 0;
 
             if (request.Force == 0)
@@ -194,7 +197,11 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
 
                 var downloadDto = _mapper.Map<DownloadRequestDto>(downloadEnt);
 
-                _rmqProducer.Publish(downloadDto.ToString());
+                await _publisher.SendAsync(downloadDto);
+                Activity.Current?.SetTag(Telemetry.DownloadIdTag, downloadDto.Id);
+                Telemetry.DownloadsRequested.Add(1);
+                _logger.LogInformation("Download {DownloadId} ({ClientId}) queued for {RequestedUrl}",
+                    downloadDto.Id, clientId, downloadDto.RequestedUrl);
 
                 downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.Id == downloadEnt.Id);
                 if (downloadEnt != null)
@@ -266,7 +273,7 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
                     Id = newExtractInfoId,
                     RequestedUrl = request.RequestedUrl
                 };
-                _rmqProducer.Publish(requestExtractInfoDto.ToString());
+                await _publisher.SendAsync(requestExtractInfoDto);
 
                 var startDate = DateTime.Now;
                 var msProgress = timeoutMs;
@@ -274,11 +281,15 @@ public class VdApiCallsForClientService : VdapiCallsForClient.VdapiCallsForClien
 
                 while (true)
                 {
-                    msProgress = DateTime.Now.Subtract(startDate).Milliseconds;
+                    // TotalMilliseconds: .Milliseconds is only the 0-999 part, so the timeout never fired and a
+                    // failed extraction kept this request polling Postgres in a tight loop.
+                    msProgress = (int)DateTime.Now.Subtract(startDate).TotalMilliseconds;
 
                     if (loggedExtractInfoEnt != null
                         || msProgress > timeoutMs)
                         break;
+
+                    await Task.Delay(100, context.CancellationToken);
 
                     loggedExtractInfoEnt = await _dbContext.ExtractInfos
                         .AsNoTracking()

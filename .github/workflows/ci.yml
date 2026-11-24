@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dotnet:
+    name: .NET ${{ matrix.service }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: Manager, os: ubuntu-latest }
+          - { service: DownloadUpdater, os: ubuntu-latest }
+          - { service: Ytdlp, os: ubuntu-latest }
+          # MoveFileTests.Locked_file_retry_logs_show_actual_values relies on Windows file locking.
+          - { service: Distributor, os: windows-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+      - name: Test
+        run: dotnet test MS.Vid-dldr.${{ matrix.service }}/MS.Vid-dldr.${{ matrix.service }}.sln --logger "trx;LogFileName=results.trx" --results-directory TestResults
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.service }}
+          path: TestResults/*.trx
+
+  downloader:
+    name: Downloader (Python)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MS.Vid-dldr.Downloader
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: MS.Vid-dldr.Downloader/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+
+  web:
+    name: Web (React)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MS.Vid-dldr.Web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: MS.Vid-dldr.Web/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  images:
+    name: Docker images
+    needs: [dotnet, downloader, web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Builds every image in the Dev stack (Manager, Downloader, DownloadUpdater, Ytdlp, web) without pushing.
+      - name: Build
+        run: docker compose --env-file .env.dev -f docker-compose.Dev.yaml build

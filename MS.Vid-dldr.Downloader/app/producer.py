@@ -1,5 +1,6 @@
 import pika
 import helper as h
+from observability import telemetry
 
 def Send(routingKey, body, channelHost, portNumber):
     #h.printLog(f"producer.Send(routingKey: {routingKey}, body: {body}, channelHost: {channelHost}, portNumber: {portNumber})")
@@ -17,7 +18,8 @@ def Send(routingKey, body, channelHost, portNumber):
             routing_key=routingKey,
             body=body,
             properties=pika.BasicProperties(content_type='text/plain',
-                delivery_mode=pika.DeliveryMode.Persistent),
+                delivery_mode=pika.DeliveryMode.Persistent,
+                headers=telemetry.inject()),
             mandatory=True)
         h.printLog(f"SUCCESS: Sent message: '{body}', on channel: '{routingKey}'.")    
     except Exception as e:

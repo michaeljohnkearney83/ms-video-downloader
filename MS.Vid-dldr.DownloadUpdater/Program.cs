@@ -1,4 +1,5 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using MS.Vid_dldr.DownloadUpdater.Observability;
 using Microsoft.Extensions.Hosting;
 using MS.Vid_dldr.DownloadUpdater;
 using Microsoft.Extensions.Configuration;
@@ -31,6 +32,7 @@ Host.CreateDefaultBuilder()
     .ConfigureServices((ContextBoundObject, services) =>
     {
         services.AddTransient<IAppSettings, AppSettings>();
+        services.AddVdTelemetry(ContextBoundObject.Configuration);
         services.AddHostedService<UpdaterService>();
         services.AddSingleton<ResolverFactory>(
             x => new DnsResolverFactory(refreshInterval: TimeSpan.FromSeconds(30)));

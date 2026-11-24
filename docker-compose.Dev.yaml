@@ -1,4 +1,5 @@
-#docker compose --env-file .env.dev -f docker-compose.Dev.yaml up --build -d   
+#docker compose --env-file .env.dev --env-file .env.dev.local -f docker-compose.Dev.yaml up --build -d --wait
+# (.env.dev.local is git-ignored: copy .env.dev.local.example)
 name: ms_vid-dldr
 
 services:
@@ -9,6 +10,31 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    restart: unless-stopped
+
+  # Observability: OpenTelemetry collector + Tempo (traces) + Loki (logs) + Prometheus (metrics) + Grafana.
+  # Grafana: http://localhost:3000 (admin/admin). Services send OTLP to otel-lgtm:4317 (gRPC) / :4318 (HTTP).
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.41.1
+    container_name: ms_vid-dldr-otel-lgtm
+    hostname: otel-lgtm
+    environment:
+      # Store a 0 at each counter's start time (sent over OTLP), so increase() counts a new series' first events.
+      - PROMETHEUS_EXTRA_ARGS=--enable-feature=created-timestamp-zero-ingestion
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+    volumes:
+      - ./observability/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/ms-vid-dldr.yaml:ro
+      - ./observability/grafana/dashboards:/otel-lgtm/ms-vid-dldr-dashboards:ro
+      - ./observability/grafana/alerting.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/ms-vid-dldr.yaml:ro
     restart: unless-stopped
 
   manager-api:
@@ -27,15 +53,34 @@ services:
       - Kestrel__Endpoints__REST__Url=http://*:8000
       - Kestrel__Endpoints__REST__Protocols=Http1
       - ASPNETCORE_ENVIRONMENT=Development
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
+      - OTEL_SERVICE_NAME=ms-vid-dldr-manager
+      # The downloader health check asks the worker itself what it is doing (stuck jobs), not just the queue.
+      - AppSettings__DownloaderHealthUrl=http://downloader:8081/health
+      - AppSettings__HomeDrivePath=${MANAGER_HOME_DRIVE_PATH}
+      - OTEL_METRIC_EXPORT_INTERVAL=15000
+      - SENTRY_DSN=${SENTRY_DSN:-}
     ports:
       - "8000:8000"
       - "5000:5000"
+    healthcheck:
+      # Liveness only (/health/live has no dependency checks). The aspnet image has no curl, so bash sends the request.
+      test: ["CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8000 && printf "GET /health/live HTTP/1.0\r\nHost: localhost\r\n\r\n" >&3 && head -n 1 <&3 | grep -q " 200 "']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
-      - "manager-db"
+      manager-db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      otel-lgtm:
+        condition: service_started
     restart: unless-stopped
     
   manager-db:
-    image: postgres:latest
+    image: postgres:17  # 18+ wants the volume at /var/lib/postgresql, not .../data
     container_name: ms_vid-dldr-manager-db
     hostname: manager-db
     environment:
@@ -43,11 +88,15 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=MS.VdDownloader
     ports:
-      - "5433:5432"
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
     volumes:
       - db-data:/var/lib/postgresql/data
-    depends_on:
-      - "rabbitmq"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d MS.VdDownloader"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
     restart: unless-stopped
 
   downloader:
@@ -55,6 +104,9 @@ services:
     build:
       context: ./MS.Vid-dldr.Downloader
       dockerfile: Dockerfile.alpine
+      args:
+        # Set by scripts/Update-Ytdlp.ps1; empty = whatever requirements.txt resolves to.
+        YTDLP_VERSION: ${YTDLP_VERSION:-}
     container_name: ms_vid-dldr-downloader-srv
     hostname: downloader
     volumes:
@@ -63,8 +115,17 @@ services:
     #  - "7105:7105"
     #deploy:
     #  replicas: 0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
     depends_on:
-      - "manager-api"
+      rabbitmq:
+        condition: service_healthy
+      manager-api:
+        condition: service_healthy
     restart: unless-stopped
 
     environment:
@@ -77,6 +138,15 @@ services:
       - DEFAULT_RETRY_COUNT=${DEFAULT_RETRY_COUNT}
       - DEFAULT_TIMEOUT_SECONDS=${DEFAULT_TIMEOUT_SECONDS}
       - DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS=${DEFAULT_DOWNLOAD_STALLED_TIMEOUT_SECONDS}
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4318
+      - OTEL_SERVICE_NAME=ms-vid-dldr-downloader
+      # /health on 8081. A job with no progress for HEALTH_STUCK_AFTER_SECONDS is Unhealthy; after
+      # HEALTH_EXIT_AFTER_SECONDS the worker reports it ERRORED and exits so Docker restarts it (0 = never).
+      - HEALTH_PORT=8081
+      - HEALTH_STUCK_AFTER_SECONDS=${HEALTH_STUCK_AFTER_SECONDS:-600}
+      - HEALTH_EXIT_AFTER_SECONDS=${HEALTH_EXIT_AFTER_SECONDS:-900}
+      - OTEL_METRIC_EXPORT_INTERVAL=15000
+      - SENTRY_DSN=${SENTRY_DSN:-}
   
   updater:
     image: docker.io/library/ms-vid-dldr-downloadupdater
@@ -85,8 +155,16 @@ services:
       dockerfile: Dockerfile.ubuntu
     container_name: ms_vid-dldr-updater-srv
     hostname: updater
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
+      - OTEL_SERVICE_NAME=ms-vid-dldr-updater
+      - OTEL_METRIC_EXPORT_INTERVAL=15000
+      - SENTRY_DSN=${SENTRY_DSN:-}
     depends_on:
-      - "downloader"
+      rabbitmq:
+        condition: service_healthy
+      manager-api:
+        condition: service_healthy
     restart: unless-stopped
 
   ytdlp:
@@ -96,8 +174,37 @@ services:
       dockerfile: Dockerfile.ubuntu
     container_name: ms_vid-dldr-ytdlp-srv
     hostname: ytdlp
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-lgtm:4317
+      - OTEL_SERVICE_NAME=ms-vid-dldr-ytdlp
+      - OTEL_METRIC_EXPORT_INTERVAL=15000
+      - SENTRY_DSN=${SENTRY_DSN:-}
     depends_on:
-      - "manager-api"
+      manager-api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # React front end (MS.Vid-dldr.Web): http://localhost:8080. nginx serves the app and proxies /v1 and /health to the
+  # Manager on this network.
+  web:
+    image: docker.io/library/ms-vid-dldr-web
+    build:
+      context: ./MS.Vid-dldr.Web
+    container_name: ms_vid-dldr-web
+    hostname: web
+    environment:
+      - MANAGER_URL=http://manager-api:8000
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # nginx itself, not the Manager (the app shows the Manager's health from /health/ready).
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      manager-api:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

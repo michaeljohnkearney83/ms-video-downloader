@@ -1,3 +1,4 @@
+using MS.Vid_dldr.Distributor.Observability;
 using System.Linq.Expressions;
 using System.Net.Http;
 using System.Net.Http.Formatting;
@@ -162,6 +163,12 @@ public class DistributorService : IHostedService, IDistributorService
 
     public async Task<bool> MoveFileAsync(string filePath, string fromEvent)
     {
+        // The file system breaks the trace (the Downloader's context is not in the file), so this starts a new
+        // trace; the client id tag links it to the rest of the download's spans.
+        using var activity = Telemetry.Source.StartActivity("distribute file");
+        activity?.SetTag(Telemetry.ClientIdTag, Path.GetFileName(filePath).Split(".")[0]);
+        activity?.SetTag("vd.distributor.trigger", fromEvent);
+
         WriteLog(Constantss.LogStatusCall, $"MoveFileAsync(string filePath: '{filePath}', fromEvent: '{fromEvent}')");
 
         try
@@ -514,6 +521,6 @@ public class DistributorService : IHostedService, IDistributorService
 
     private void WriteLog(string status, string line)
     {
-        Console.WriteLine($"{Constantss.MsNoticeLogPrefix}[{status}] {line}");
+        Telemetry.Log(status, line);
     }
 }

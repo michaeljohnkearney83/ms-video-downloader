@@ -10,7 +10,7 @@ using MS.Vid_dldr.Manager.Protos;
 using MS.Vid_dldr.Manager.Helpers;
 using MS.Vid_dldr.Manager.Protos.Common;
 using MS.Vid_dldr.Manager.Entities.Scripts;
-using MS.Vid_dldr.Manager.RabbitMq;
+using MS.Vid_dldr.Manager.Messaging;
 using MS.Vid_dldr.Manager.Entities;
 using System.Text;
 using Microsoft.Extensions.ObjectPool;
@@ -24,16 +24,16 @@ public class ServiceHelper : IServiceHelper
     private readonly IMapper _mapper;
     private readonly IAppSettings _appSettings;
     private readonly AppDbContext _dbContext;
-    private readonly RMQProducer _rmqProducer;
+    private readonly IDownloadRequestPublisher _publisher;
 
-    public ServiceHelper(ILogger<ServiceHelper> logger, IMapper mapper, IAppSettings appSettings, AppDbContext dbContext)
+    public ServiceHelper(ILogger<ServiceHelper> logger, IMapper mapper, IAppSettings appSettings, AppDbContext dbContext,
+        IDownloadRequestPublisher publisher)
     {
         _logger = logger;
         _mapper = mapper;
         _appSettings = appSettings;
         _dbContext = dbContext;
-
-        _rmqProducer = new RMQProducer(_appSettings.ChannelHostName, _appSettings.ChannelPortNumber, _appSettings.QueueRequestDownload);
+        _publisher = publisher;
     }
 
     public T SetupMethod<T>(Object request, string? methodName = null)
@@ -91,7 +91,7 @@ public class ServiceHelper : IServiceHelper
         return status;
     }
 
-    public bool RetryAnalysisDownload(Download downloadEnt)
+    public async Task<bool> RetryAnalysisDownloadAsync(Download downloadEnt)
     {
         _logger.LogInformation($"RetryAnalysisDownload(Download downloadEnt: {JsonSerializer.Serialize(downloadEnt)}");
 
@@ -105,7 +105,7 @@ public class ServiceHelper : IServiceHelper
 
             analysisRequestDto.IsRetry = true;
 
-            _rmqProducer.Publish(analysisRequestDto.ToString());
+            await _publisher.SendAsync(analysisRequestDto);
 
             result = true;
         }

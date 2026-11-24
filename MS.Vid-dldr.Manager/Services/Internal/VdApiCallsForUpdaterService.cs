@@ -8,9 +8,10 @@ using MS.Vid_dldr.Manager.Protos;
 using MS.Vid_dldr.Manager.Data;
 using MS.Vid_dldr.Manager.Entities;
 using MS.Vid_dldr.Manager.Dtos;
-using MS.Vid_dldr.Manager.RabbitMq;
+using MS.Vid_dldr.Manager.Messaging;
 using MS.Vid_dldr.Manager.Helpers;
 using Google.Protobuf;
+using MS.Vid_dldr.Manager.Observability;
 
 namespace MS.Vid_dldr.Manager.Services.Internal;
 
@@ -22,21 +23,22 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
     private readonly IMapper _mapper;
     private readonly IAppSettings _appSettings;
     private readonly IServiceHelper _serviceHelper;
-    private readonly RMQProducer _rmqProducer;
+    private readonly IDownloadRequestPublisher _publisher;
 
-    public VdApiCallsForUpdaterService(ILogger<VdApiCallsForUpdaterService> logger, AppDbContext dbContext, IMapper mapper, IAppSettings appSettings, IServiceHelper serviceHelper)
+    public VdApiCallsForUpdaterService(ILogger<VdApiCallsForUpdaterService> logger, AppDbContext dbContext, IMapper mapper, IAppSettings appSettings, IServiceHelper serviceHelper,
+        IDownloadRequestPublisher publisher)
     {
         _logger = logger;
         _dbContext = dbContext;
         _mapper = mapper;
         _appSettings = appSettings;
         _serviceHelper = serviceHelper;
-
-        _rmqProducer = new RMQProducer(_appSettings.ChannelHostName, _appSettings.ChannelPortNumber, _appSettings.QueueRequestDownload);
+        _publisher = publisher;
     }
 
     public override async Task<UpdateDownloadProgressAnalysisResponse> UpdateDownloadProgressAnalysis(UpdateDownloadProgressAnalysisRequest request, ServerCallContext context)
     {
+        Telemetry.RecordStatusUpdate(request.Id, "ANALYSIS");
         var response = _serviceHelper.SetupMethod<UpdateDownloadProgressAnalysisResponse>(request, "UpdateDownloadProgressAnalysis");
 
         try
@@ -79,6 +81,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
     }
     public override async Task<UpdateDownloadProgressDownloadingResponse> UpdateDownloadProgressDownloading(UpdateDownloadProgressDownloadingRequest request, ServerCallContext context)
     {
+        Telemetry.RecordStatusUpdate(request.Id, "DOWNLOADING");
         var response = _serviceHelper.SetupMethod<UpdateDownloadProgressDownloadingResponse>(request, "UpdateDownloadProgressDownloading");
 
         try
@@ -111,6 +114,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
     }
     public override async Task<UpdateDownloadProgressFinishedResponse> UpdateDownloadProgressFinished(UpdateDownloadProgressFinishedRequest request, ServerCallContext context)
     {
+        Telemetry.RecordStatusUpdate(request.Id, "FINISHED");
         var response = _serviceHelper.SetupMethod<UpdateDownloadProgressFinishedResponse>(request, "UpdateDownloadFinished");
 
         try
@@ -138,7 +142,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
 
                     if (downloadEnt.Analysed == null)
                     {
-                        if (!_serviceHelper.RetryAnalysisDownload(downloadEnt))
+                        if (!await _serviceHelper.RetryAnalysisDownloadAsync(downloadEnt))
                             _logger.LogError($"UpdateDownloadProgressFinished(UpdateDownloadProgressFinishedRequest: {JsonSerializer.Serialize(request)}: Failed to retry analysis");
                     }
                 }
@@ -154,6 +158,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
     }
     public override async Task<UpdateDownloadProgressErroredResponse> UpdateDownloadProgressErrored(UpdateDownloadProgressErroredRequest request, ServerCallContext context)
     {
+        Telemetry.RecordStatusUpdate(request.Id, "ERRORED");
         var response = _serviceHelper.SetupMethod<UpdateDownloadProgressErroredResponse>(request, "UpdateDownloadProgressErrored");
 
         try
@@ -248,6 +253,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
     }
     public override async Task<UpdateRequestExtractInfoFormatsResponse> UpdateRequestExtractInfoFormats(UpdateRequestExtractInfoFormatsRequest request, ServerCallContext context)
     {
+        Telemetry.RecordStatusUpdate(request.Id, "EXTRACT_INFO");
         var response = _serviceHelper.SetupMethod<UpdateRequestExtractInfoFormatsResponse>(request, "UpdateRequestExtractInfoFormats");
         try
         {
@@ -289,7 +295,7 @@ public class VdApiCallsForUpdaterService : VdApiCallsForUpdater.VdApiCallsForUpd
                 //Queued it
                 var downloadDto = _mapper.Map<DownloadRequestDto>(downloadErrored);
 
-                _rmqProducer.Publish(downloadDto.ToString());
+                await _publisher.SendAsync(downloadDto);
 
                 downloadErrored.RetryOnErroredAttemptNo = attemptNo;
                 downloadErrored.Status = Constants.DownloadStatusTypeQueued;

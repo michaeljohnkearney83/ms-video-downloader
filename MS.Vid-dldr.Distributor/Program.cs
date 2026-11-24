@@ -1,4 +1,6 @@
-﻿using System.Net;
+﻿using Microsoft.Extensions.Logging;
+using MS.Vid_dldr.Distributor.Observability;
+using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http.Resilience;
@@ -22,17 +24,20 @@ var appsettingsBuild = "";
 appsettingsBuild = ".Release";
 #endif
 
-Host.CreateDefaultBuilder()
+var host = Host.CreateDefaultBuilder()
     .UseContentRoot(Directory.GetCurrentDirectory())
     .ConfigureAppConfiguration((hostingContext, config) =>
         {
             config
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
-                .AddJsonFile($"appsettings{appsettingsBuild}.json", optional: true, reloadOnChange: true);
+                .AddJsonFile($"appsettings{appsettingsBuild}.json", optional: true, reloadOnChange: true)
+                // Machine-specific settings (your share folder), git-ignored.
+                .AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
         })
         .ConfigureServices((ContextBoundObject, services) =>
         {
             services.AddTransient<IAppSettings, AppSettings>();
+            services.AddVdTelemetry(ContextBoundObject.Configuration, GetVersion());
             services.AddSingleton<IManagerApiConfig, ManagerApiConfig>();
 
             services.AddHttpClient("ms-vid-dldr-httpClient", (serviceProvider, httpClientOptions) =>
@@ -78,8 +83,10 @@ Host.CreateDefaultBuilder()
 
             services.AddHostedService<DistributorService>();
         })
-        .Build()
-        .Run();
+        .Build();
+
+Telemetry.Logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger(Telemetry.ServiceName);
+host.Run();
 
 static string GetVersion()
 {

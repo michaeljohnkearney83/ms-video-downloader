@@ -13,12 +13,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Copy the requirements file
 COPY requirements.txt .
 
+# Exact yt-dlp release to install (scripts/Update-Ytdlp.ps1 passes the latest from PyPI). Empty = whatever
+# requirements.txt resolves to. A new value invalidates this layer, so a plain rebuild picks it up.
+ARG YTDLP_VERSION=
+
 # Update package index, install build dependencies, and install Python packages
 # Using set -eux for better error handling
 RUN set -eux && \
     apk update && \
     apk add --no-cache gcc musl-dev libffi-dev && \
     ./bin/pip install --no-cache-dir -r requirements.txt && \
+    if [ -n "${YTDLP_VERSION}" ]; then ./bin/pip install --no-cache-dir "yt-dlp[default]==${YTDLP_VERSION}"; fi && \
     apk del gcc musl-dev
 
 # Final Stage/Image
@@ -44,6 +49,6 @@ RUN addgroup -S appgroup && \
     apk add --no-cache ffmpeg
 
 # Switch to the non-root user
-USER appuser.vd/        
+USER appuser
 
 ENTRYPOINT ["/bin/sh", "-c", ". /opt/venv/bin/activate && deno --version && python main.py"]
