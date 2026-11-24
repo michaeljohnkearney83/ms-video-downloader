@@ -8,7 +8,13 @@ public class AppSettings : IAppSettings
         HomeDrivePath = configuration["AppSettings:HomeDrivePath"];
         ChannelHostName = configuration["AppSettings:ChannelHostName"];
         ChannelPortNumber = Convert.ToInt32(configuration["AppSettings:ChannelPortNumber"]);
+        ChannelUsername = configuration["AppSettings:ChannelUsername"] ?? "guest";
+        ChannelPassword = configuration["AppSettings:ChannelPassword"] ?? "guest";
         QueueRequestDownload = configuration["AppSettings:QueueRequestDownload"];
+        QueueDownloadUpdate = configuration["AppSettings:QueueDownloadUpdate"] ?? "ms_vd_q_downloadUpdate";
+        ChannelManagementPort = int.TryParse(configuration["AppSettings:ChannelManagementPort"], out var managementPort)
+            ? managementPort : 15672;
+        DownloaderHealthUrl = configuration["AppSettings:DownloaderHealthUrl"] ?? "";
         WaitForYtdlpToFinishRetryMaxCount = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryMaxCount"]);
         WaitForYtdlpToFinishRetryWait = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryWait"]);
         MaxFilepathLength = Convert.ToInt32(configuration["AppSettings:MaxFilepathLength"]);
@@ -20,7 +26,15 @@ public class AppSettings : IAppSettings
     public string HomeDrivePath { get; set; }
     public string ChannelHostName { get; set; }
     public int ChannelPortNumber { get; set; }
+    public string ChannelUsername { get; set; }
+    public string ChannelPassword { get; set; }
     public string QueueRequestDownload { get; set; }
+    /// <summary>Queue the DownloadUpdater consumes (the health check looks for its consumer).</summary>
+    public string QueueDownloadUpdate { get; set; }
+    /// <summary>RabbitMQ management API port, used by the health checks to count queue consumers.</summary>
+    public int ChannelManagementPort { get; set; }
+    /// <summary>The Python Downloader's /health (e.g. http://downloader:8081/health). Empty = queue check only.</summary>
+    public string DownloaderHealthUrl { get; set; }
     public int WaitForYtdlpToFinishRetryMaxCount { get; set; }
     public int WaitForYtdlpToFinishRetryWait { get; set; }
     public int MaxFilepathLength { get; set; }
@@ -34,6 +48,7 @@ public class AppSettings : IAppSettings
         $"+ HomeDrivePath: {HomeDrivePath}, \r\n" +
         $"+ ChannelHostName: {ChannelHostName}, \r\n" +
         $"+ ChannelPortNumber: {ChannelPortNumber}, \r\n" +
+        $"+ ChannelUsername: {ChannelUsername}, \r\n" +
         $"+ QueueRequestDownload: {QueueRequestDownload}, \r\n" +
         $"+ WaitForYtdlpToFinishRetryMaxCount: {WaitForYtdlpToFinishRetryMaxCount}, \r\n" +
         $"+ WaitForYtdlpToFinishRetryWait: {WaitForYtdlpToFinishRetryMaxCount}, \r\n" +

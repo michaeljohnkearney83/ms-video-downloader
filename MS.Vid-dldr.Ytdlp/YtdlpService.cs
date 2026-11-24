@@ -1,6 +1,8 @@
+using MS.Vid_dldr.Ytdlp.Observability;
 using System.Text.Json;
 using MS.Vid_dldr.Ytdlp;
 using HtmlAgilityPack;
+using HtmlAgilityPack.CssSelectors.NetCore;
 using Microsoft.Extensions.Hosting;
 using System.Text;
 
@@ -41,6 +43,7 @@ public class YtdlpService : IHostedService, IYtdlpService
         WriteLog(Constantss.LogStatusInfo, $"The Version check raised at {e.SignalTime}");
 
         // async void: CheckVersionAsync must never throw, or the exception would end the process.
+        using var activity = Telemetry.Source.StartActivity("check yt-dlp version");
         await CheckVersionAsync(() => new HtmlWeb().Load(_appSettings.YtdlpGitUrl));
     }
 
@@ -106,6 +109,6 @@ public class YtdlpService : IHostedService, IYtdlpService
 
     private static void WriteLog(string status, string line)
     {
-        Console.WriteLine($"{Constantss.MsNoticeLogPrefix}[{status}] {line}");
+        Telemetry.Log(status, line);
     }
 }

@@ -1,5 +1,7 @@
-﻿
+﻿using Microsoft.Extensions.Logging;
 
+
+using MS.Vid_dldr.Ytdlp.Observability;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -24,7 +26,7 @@ var appsettingsBuild = "";
 appsettingsBuild = ".Release";
 #endif
 
-Host.CreateDefaultBuilder()
+var host = Host.CreateDefaultBuilder()
     .UseContentRoot(Directory.GetCurrentDirectory())
     .ConfigureAppConfiguration((hostingContext, config) =>
         {
@@ -35,6 +37,7 @@ Host.CreateDefaultBuilder()
         .ConfigureServices((ContextBoundObject, services) =>
         {
             services.AddTransient<IAppSettings, AppSettings>();
+            services.AddVdTelemetry(ContextBoundObject.Configuration, GetVersion());
             services.AddSingleton<IManagerApiConfig, ManagerApiConfig>();
 
             services.AddHttpClient("ms-vid-dldr-httpClient", (serviceProvider, httpClientOptions) =>
@@ -80,8 +83,10 @@ Host.CreateDefaultBuilder()
 
             services.AddHostedService<YtdlpService>();
         })
-        .Build()
-        .Run();
+        .Build();
+
+Telemetry.Logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger(Telemetry.ServiceName);
+host.Run();
 
 static string GetVersion()
 {

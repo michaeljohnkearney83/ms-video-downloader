@@ -1,5 +1,5 @@
 # Building Stage used Ubuntu Chiseled
-FROM mcr.microsoft.com/dotnet/sdk:7.0.410-jammy AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 # Working directory
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY . .
 RUN dotnet publish MS.Vid-dldr.Manager.csproj -c Release -o out
 
 # Final Stage/Image
-FROM mcr.microsoft.com/dotnet/aspnet:7.0.20-jammy AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
 # Working directory
 WORKDIR /app
 

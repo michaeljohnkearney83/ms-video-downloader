@@ -5,12 +5,16 @@ using MS.Vid_dldr.Manager.Services.Internal;
 using MS.Vid_dldr.Manager.Data;
 using MS.Vid_dldr.Manager;
 using MS.Vid_dldr.Manager.Helpers;
+using MS.Vid_dldr.Manager.Messaging;
+using MS.Vid_dldr.Manager.Observability;
+using MS.Vid_dldr.Manager.Health;
 using Microsoft.OpenApi.Models;
-using Serilog;
 
 Console.WriteLine($"{Constants.MsNoticeLogPrefix}[INITIALISE] MS.Vid-dldr.Manager [v{UtilityHelper.GetVersion()}] started!");
 
 var builder = WebApplication.CreateBuilder(args);
+// Machine-specific settings for `dotnet run` (git-ignored, not copied into the image).
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
 
 builder.Services.AddTransient<IAppSettings, AppSettings>();
 builder.Services.AddTransient<IServiceHelper, ServiceHelper>();
@@ -18,6 +22,9 @@ builder.Services.AddTransient<IVersionService, VersionService>();
 builder.Services.AddTransient<AppSettings>();
 builder.Services.AddTransient<VersionService>();
 builder.Services.AddGrpcReflection();
+builder.Services.AddDownloaderMessaging();
+builder.AddVdTelemetry();
+builder.Services.AddVdHealthChecks();
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
     options.UseNpgsql(builder.Configuration.GetConnectionString("DownloadsDb"), npgsql => npgsql.EnableRetryOnFailure(
@@ -31,7 +38,7 @@ builder.Services.AddCors(o => o.AddPolicy("AllowAll", builder =>
     builder.AllowAnyOrigin()
             .AllowAnyMethod()
             .AllowAnyHeader()
-            .WithExposedHeaders("Grpc-Status", "Grpc-Message", "Grpc-Encoding", "Grpc-Accept-Encoding");
+            .WithExposedHeaders("Grpc-Status", "Grpc-Message", "Grpc-Encoding", "Grpc-Accept-Encoding", Telemetry.TraceIdHeader);
 }));
 builder.Services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
 builder.Services.AddGrpcSwagger();
@@ -54,12 +61,6 @@ builder.Services.AddSwaggerGen(x =>
     x.IncludeGrpcXmlComments(xmlPath, includeControllerXmlComments: true);
 });
 
-var _logger = new LoggerConfiguration()
-.ReadFrom.Configuration(builder.Configuration).Enrich.FromLogContext()
-.CreateLogger();
-
-builder.Logging.AddSerilog(_logger);
-
 var app = builder.Build();
 
 using var scopeDbContext = app.Services.CreateScope();
@@ -76,9 +77,22 @@ using var scopeAppSettings = app.Services.CreateScope();
 var appSettings = scopeAppSettings.ServiceProvider.GetRequiredService<AppSettings>();
 Console.WriteLine($"{Constants.MsNoticeLogPrefix}[APPSETTINGS]\r\n{appSettings.ToString()}");
 
-using var scopeVersionService = app.Services.CreateScope();
-var versionService = scopeVersionService.ServiceProvider.GetRequiredService<VersionService>();
-versionService.InitiateCollectionOfVersions();
+app.Lifetime.ApplicationStarted.Register(Telemetry.InitialiseCounters);
+
+// The MassTransit bus starts with the host, so ask for versions once the app has started.
+app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(async () =>
+{
+    try
+    {
+        using var scopeVersionService = app.Services.CreateScope();
+        var versionService = scopeVersionService.ServiceProvider.GetRequiredService<VersionService>();
+        await versionService.InitiateCollectionOfVersionsAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogError(ex, "InitiateCollectionOfVersions failed");
+    }
+}));
 
 IWebHostEnvironment env = app.Environment;
 if (env.IsDevelopment())
@@ -86,7 +100,7 @@ if (env.IsDevelopment())
     Console.WriteLine($"{Constants.MsNoticeLogPrefix} Swagger available");
 
     app.MapGrpcReflectionService();
-    Log.Information("gRPC Reflection enabled");
+    app.Logger.LogInformation("gRPC reflection enabled");
 
     app.UseSwagger();
     app.UseSwaggerUI(c =>
@@ -100,8 +114,10 @@ if (env.IsDevelopment())
         });
 }
 
+app.UseTraceIdResponseHeader();
 app.UseCors();
 
+app.MapVdHealthChecks();
 app.MapGrpcService<VdApiCallsForGenericService>().RequireCors("AllowAll");
 app.MapGrpcService<VdApiCallsForClientService>().RequireCors("AllowAll");
 app.MapGrpcService<VdApiCallsForConfigureService>().RequireCors("AllowAll");

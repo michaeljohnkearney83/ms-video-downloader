@@ -8,7 +8,6 @@ using MS.Vid_dldr.Manager.Protos.FromConfigure;
 using MS.Vid_dldr.Manager.Data;
 using MS.Vid_dldr.Manager.Entities;
 using MS.Vid_dldr.Manager.Dtos;
-using MS.Vid_dldr.Manager.RabbitMq;
 using MS.Vid_dldr.Manager.Helpers;
 using MS.Vid_dldr.Manager.Protos.Common;
 using MS.Vid_dldr.Manager.Mappers;
@@ -49,15 +48,18 @@ public class VdApiCallsForConfigureService : VdApiCallsForConfigure.VdApiCallsFo
             var requestedDate = UtilityHelper.GetDateTimeNowUtc();
             var newSoftwareVersions = new SoftwareVersions();
 
-            _versionService.InitiateCollectionOfVersions(requestedDate);
+            await _versionService.InitiateCollectionOfVersionsAsync(requestedDate);
 
             while (true)
             {
-                msProgress = DateTime.Now.Subtract(startDate).Milliseconds;
+                // TotalMilliseconds: .Milliseconds is only the 0-999 part, so the timeout never fired.
+                msProgress = (int)DateTime.Now.Subtract(startDate).TotalMilliseconds;
 
                 if (softwareVersionEnt != null
                     || msProgress > timeoutMs)
                     break;
+
+                await Task.Delay(100, context.CancellationToken);
 
                 softwareVersionEnt = await _dbContext.SoftwareVersions
                     .OrderByDescending(x => x.Requested == requestedDate)

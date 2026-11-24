@@ -1,5 +1,5 @@
 # Building Stage used Ubuntu Chiseled
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /app
 
 # copy csproj and restore as distinct layers
@@ -8,16 +8,16 @@ RUN dotnet restore MS.Vid-dldr.Ytdlp.csproj
 
 # copy and publish app and libraries
 COPY . .
-RUN dotnet publish MS.Vid-dldr.Ytdlp.csproj -c Release
+RUN dotnet publish MS.Vid-dldr.Ytdlp.csproj -c Release -o out
 
 # Final Stage/Image
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS final
+FROM mcr.microsoft.com/dotnet/aspnet:11.0 AS final
 
 # Working directory
 WORKDIR /app
 
 # Copy the application from the build stage
-COPY --from=build /app/bin/Release/net9.0/publish .
+COPY --from=build /app/out .
 
 # Add a non-root user and set appropriate permissions
 #RUN groupadd -r app && useradd -r -g app app && \

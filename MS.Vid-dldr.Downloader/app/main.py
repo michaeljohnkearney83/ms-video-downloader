@@ -6,6 +6,9 @@ import time
 
 import yt_dlp.version
 import producer as dlUpdates
+from observability import telemetry
+from observability import health
+from opentelemetry import trace
 import pika
 import format as f
 import constants as c
@@ -75,6 +78,8 @@ def getProgressValue(obj, key):
 def progressHooks(msg):
     #h.printLog(f"main.progressHooks(msg: {msg})")
 
+    health.worker.touch()
+
     status = getProgressValue(msg, 'status')
 
     progress = {
@@ -118,6 +123,10 @@ def postProcessorHooks(msg):
 def sendError(msg):
     #h.printLog(f"main.sendError(msg: {msg})")
 
+    telemetry.mark_error(msg)
+    health.worker.job_failed(msg)
+    h.printLog(f"ERROR: download {_managerId}: {msg}")
+
     progress = {
         'managerId': _managerId,    
         'activity': h.getDateTimeNowHuman(),
@@ -127,6 +136,7 @@ def sendError(msg):
 
     dlUpdates.Send(appsettings.QueueDownloadUpdate, json.dumps(progress), appsettings.ChannelHost, appsettings.ChannelPortNumber)
 
+@telemetry.traced("yt-dlp download")
 def download():
     #h.printLog("main.download(ydl_opts)")
 
@@ -149,6 +159,7 @@ def download():
 
             sendError(errorMessage)
 
+@telemetry.traced("yt-dlp analyse")
 def analyse():
     #h.printLog("main.analyse()")
 
@@ -190,6 +201,7 @@ def analyse():
 
     return result
 
+@telemetry.traced("yt-dlp extract info")
 def extract():
     #h.printLog("main.extract()")
 
@@ -214,6 +226,16 @@ def extract():
                 sendError("Extraction failed, info object returned null.")
 
 def on_message_received(channel, method_frame, header_frame, body):
+    """Runs the message in a consumer span that continues the trace in its traceparent header."""
+    headers = getattr(header_frame, "headers", None)
+    queue = getattr(method_frame, "routing_key", None) or appsettings.QueueRequestDownload
+    with telemetry.consume_span(queue, headers):
+        try:
+            handle_message(channel, method_frame, header_frame, body)
+        finally:
+            health.worker.job_finished()
+
+def handle_message(channel, method_frame, header_frame, body):
     h.printLog(f"main.on_message_received(channel, method_frame, header_frame, body: {body})")
 
     channel.basic_ack(delivery_tag=method_frame.delivery_tag)
@@ -227,9 +249,16 @@ def on_message_received(channel, method_frame, header_frame, body):
 
         #h.printLog(request['messageType'])
 
+        span = trace.get_current_span()
+        span.set_attribute(telemetry.MESSAGE_TYPE, str(request.get('messageType')))
+        telemetry.messages.add(1, {telemetry.MESSAGE_TYPE: str(request.get('messageType'))})
+
         if request['messageType'] != c.SetVersionMessageType:
 
             setGlobals(request)
+            health.worker.job_started(request['messageType'], _managerId, None if _downloadId == -1 else str(_downloadId))
+            span.set_attribute(telemetry.DOWNLOAD_ID, _managerId)
+            if _downloadId != -1: span.set_attribute(telemetry.CLIENT_ID, str(_downloadId))
 
             if request['messageType'] == c.DownloadRequestMessageType:
                 download()
@@ -358,6 +387,10 @@ def main():
     #h.printLog("main.main()")
 
     loadAppSettings()
+    telemetry.setup(h.getSoftwareVersion())
+    # /health on HEALTH_PORT (8081) and the stuck-job watchdog. A stuck job is reported as ERRORED (so the Manager
+    # retries it) before the process exits and Docker restarts it.
+    health.worker = health.setup(h.getSoftwareVersion(), yt_dlp.version.__version__, on_stuck=sendError)
 
     connection_parameters = pika.ConnectionParameters(appsettings.ChannelHost, appsettings.ChannelPortNumber, frame_max = 131072)
     connection = pika.BlockingConnection(connection_parameters)
@@ -366,11 +399,14 @@ def main():
     channel.queue_declare(appsettings.QueueRequestDownload, durable=False, exclusive=False, auto_delete=False, arguments=None)
     channel.basic_consume(queue=appsettings.QueueRequestDownload, on_message_callback=on_message_received)
     try:
+        health.worker.set_consuming(True)
         channel.start_consuming()
         h.printLog(f"Started consuming channel: {format(appsettings.QueueRequestDownload)}.")
     except KeyboardInterrupt:
         channel.stop_consuming()
         h.printLog(f"Stopped consuming channel: {format(appsettings.QueueRequestDownload)}.")
+    finally:
+        health.worker.set_consuming(False)
 
     connection.close()
 

@@ -8,7 +8,6 @@ using MS.Vid_dldr.Manager.Protos;
 using MS.Vid_dldr.Manager.Data;
 using MS.Vid_dldr.Manager.Entities;
 using MS.Vid_dldr.Manager.Dtos;
-using MS.Vid_dldr.Manager.RabbitMq;
 using MS.Vid_dldr.Manager.Helpers;
 
 namespace MS.Vid_dldr.Manager.Services.Internal;

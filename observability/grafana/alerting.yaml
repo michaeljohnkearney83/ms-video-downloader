@@ -1,0 +1,100 @@
+# Grafana alert rules, provisioned into otel-lgtm by docker-compose.Dev.yaml.
+# Firing alerts show under Alerting > Alert rules. Add a contact point (email, Slack, Teams...) in Grafana to be notified.
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: ms-vid-dldr health
+    folder: Video downloader
+    interval: 1m
+    rules:
+      - uid: vd-health-not-healthy
+        title: Video downloader dependency not healthy
+        condition: C
+        data:
+          # vd.health.status from the Manager's health publisher: 2 Healthy, 1 Degraded, 0 Unhealthy.
+          - refId: A
+            relativeTimeRange: { from: 300, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: min by (vd_health_check) (vd_health_status{vd_health_check!="overall"})
+              instant: true
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              refId: B
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator: { type: lt, params: [2] }
+        # No data means the Manager isn't reporting at all (down, or can't reach the collector): alert on that too.
+        noDataState: Alerting
+        execErrState: Error
+        for: 2m
+        labels:
+          severity: warning
+          service: ms-vid-dldr
+        annotations:
+          summary: "{{ $labels.vd_health_check }} is not healthy"
+          description: >-
+            Health check {{ $labels.vd_health_check }} has reported {{ $values.B }} for 2 minutes
+            (2 Healthy, 1 Degraded, 0 Unhealthy). The Manager's /health/ready says why.
+
+      # "Up but failing": the Downloader is consuming and healthy, but most jobs end in ERRORED. Typically a site
+      # changed and yt-dlp needs updating (scripts/Update-Ytdlp.ps1), or a network/proxy problem.
+      - uid: vd-downloader-error-rate
+        title: Video downloader jobs mostly failing
+        condition: D
+        data:
+          # Share of jobs (download, analyse, extract; retries included) that sent an ERRORED update in 15 minutes.
+          - refId: A
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: A
+              expr: >-
+                sum(increase(vd_downloader_errors_total[15m]))
+                / clamp_min(sum(increase(vd_downloader_messages_total{vd_message_type=~"DOWNLOAD|ANALYSIS|EXTRACT_INFO"}[15m])), 1)
+              instant: true
+          # How many jobs: one or two bad URLs shouldn't page anyone.
+          - refId: B
+            relativeTimeRange: { from: 900, to: 0 }
+            datasourceUid: prometheus
+            model:
+              refId: B
+              expr: sum(increase(vd_downloader_messages_total{vd_message_type=~"DOWNLOAD|ANALYSIS|EXTRACT_INFO"}[15m]))
+              instant: true
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: reduce
+              expression: A
+              reducer: last
+          - refId: D
+            datasourceUid: __expr__
+            model:
+              refId: D
+              type: math
+              expression: "$C > 0.5 && $B >= 3"
+        # No downloads means nothing is failing.
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          service: ms-vid-dldr
+        annotations:
+          summary: Most Downloader jobs are failing
+          description: >-
+            {{ humanizePercentage $values.C.Value }} of Downloader jobs failed in the last 15 minutes. If the errors are
+            "Unable to download" / "Unsupported URL" for sites that used to work, update yt-dlp
+            (scripts/Update-Ytdlp.ps1); see the dashboard's error logs for the messages.

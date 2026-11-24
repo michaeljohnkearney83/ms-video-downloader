@@ -7,6 +7,7 @@
 
 # files
 Dockerfile*
+**/appsettings.Local.json
 **/*.trx
 **/*.md
 **/*.ps1

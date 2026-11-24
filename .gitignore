@@ -13,6 +13,10 @@ coverage*.xml
 # Runtime logs (Manager writes to Logs/)
 [Ll]ogs/
 
+# Machine-specific overrides (see .env.dev.local.example, appsettings.Local.json in the README)
+.env.*.local
+appsettings.Local.json
+
 # Python
 __pycache__/
 *.py[cod]

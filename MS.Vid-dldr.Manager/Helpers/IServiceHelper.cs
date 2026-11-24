@@ -9,7 +9,7 @@ public interface IServiceHelper
 
     string TranslateStatus(string value);
 
-    bool RetryAnalysisDownload(Download downloadEnt);
+    Task<bool> RetryAnalysisDownloadAsync(Download downloadEnt);
 
     Task<List<DownloadStatusDuringPeriod>> GetDownloadStatusDuringPeriodAsync(string startDate, string endString);
 
