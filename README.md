@@ -18,8 +18,15 @@ flowchart LR
     UPD -- state changes + 30 s checkpoint, gRPC --> Mgr
     UPD -- every tick: HSET + PUBLISH --> R[(Redis: live, ephemeral)]
     R -- SUBSCRIBE --> Mgr
-    Dist[Distributor, Windows] -- gRPC --> Mgr
+    DL -- writes file --> Share[/"vd/MS.VD.Distributor (share)"/]
+    Share --> Dist[Distributor, Windows]
+    Dist -- "where does it go? / delivered (gRPC)" --> Mgr
+    Dist -- moves file --> Dep[/"vd/1380 (deployment no.)"/]
 ```
+
+Messaging between services goes through RabbitMQ (MassTransit in the Manager). Postgres is the record. Redis holds only
+live progress. Files travel through folders: the Downloader writes to the share folder, and the Distributor moves each
+finished file to its deployment folder.
 
 ## Layout
 
@@ -189,6 +196,34 @@ repo instead: `cd MS.Vid-dldr.Distributor; dotnet run`.
 
 How a download reaches its folder:
 
+```mermaid
+sequenceDiagram
+    actor User
+    participant Web as Web app
+    participant Mgr as Manager
+    participant RMQ as RabbitMQ
+    participant DL as Downloader
+    participant Share as vd/MS.VD.Distributor
+    participant Dist as Distributor
+    participant Dep as vd/1380
+
+    User->>Web: Start session (deployment no. 1380)
+    Web->>Mgr: GET /v1/client/session/...
+    Mgr->>Dep: create folder (if missing)
+    Mgr-->>Web: session id + "Saved to vd/1380"
+    User->>Web: Download URL
+    Web->>Mgr: POST /v1/client/download
+    Mgr->>RMQ: DOWNLOAD request
+    RMQ->>DL: request
+    DL->>Share: yt-dlp writes clientId.mp4 (video + audio, merged)
+    DL->>RMQ: FINISHED (once, after the merge)
+    Share-->>Dist: file renamed (download complete)
+    Dist->>Mgr: where does clientId go?
+    Mgr-->>Dist: vd/1380, name.mp4
+    Dist->>Dep: create folder if missing, move file
+    Dist->>Mgr: DISTRIBUTED
+```
+
 1. Starting a session creates its **deployment folder**, `vd\<deployment no.>` (e.g. `C:\Users\<you>\Videos\vd\1380`).
 2. The Downloader saves `<clientId>.<ext>` in the share folder `vd\MS.VD.Distributor`. The Dev compose mounts the `vd`
    folder (`MANAGER_HOME_DRIVE_PATH`) into the Downloader at `/home-drive` and sets `DOWNLOAD_FOLDER` to
@@ -227,6 +262,33 @@ Manager only, locally:
 
 ## Pause, resume and cancel
 
+A download's statuses (pause, resume and cancel are the user's arrows):
+
+```mermaid
+stateDiagram-v2
+    [*] --> REQUESTED: request saved
+    REQUESTED --> QUEUED: sent to RabbitMQ
+    QUEUED --> ANALYSIS: Downloader picks it up
+    ANALYSIS --> DOWNLOADING
+    DOWNLOADING --> FINISHED: downloaded and merged
+    FINISHED --> DISTRIBUTED_LOOKUP: Distributor asks where it goes
+    DISTRIBUTED_LOOKUP --> DISTRIBUTED: moved to vd/deployment no.
+    DISTRIBUTED_LOOKUP --> DELETED: could not deliver
+    DOWNLOADING --> ERRORED
+    ANALYSIS --> ERRORED
+    ERRORED --> RETRY: retries left
+    RETRY --> QUEUED: sent again
+    QUEUED --> PAUSED: pause
+    ANALYSIS --> PAUSED: pause
+    DOWNLOADING --> PAUSED: pause
+    PAUSED --> QUEUED: resume (continues the .part file)
+    DOWNLOADING --> CANCELLED: cancel
+    PAUSED --> CANCELLED: cancel
+    DISTRIBUTED --> [*]
+    CANCELLED --> [*]
+    DELETED --> [*]
+```
+
 | Endpoint (POST, body `{}`) | Allowed when | Result |
 | --- | --- | --- |
 | `/v1/client/download/{clientId}/pause` | REQUESTED, QUEUED, ANALYSIS, DOWNLOADING, RETRY | **PAUSED**: the Downloader stops; the partial `.part` file is kept |
@@ -264,6 +326,36 @@ still complete and be distributed.
 
 RabbitMQ still carries the **work** (requests, progress messages, pause/cancel) and Postgres is still the **record**.
 Redis only holds what is true *right now* about running downloads, and is allowed to lose it.
+
+```mermaid
+sequenceDiagram
+    participant DL as Downloader
+    participant RMQ as RabbitMQ
+    participant UPD as DownloadUpdater
+    participant R as Redis
+    participant Mgr as Manager (each instance)
+    participant PG as Postgres
+    participant B as Browser
+
+    loop about 1 tick a second
+        DL->>RMQ: DOWNLOADING 42.5%
+        RMQ->>UPD: tick
+        UPD->>R: HSET vd:progress:{id} + PUBLISH vd:progress
+        R-->>Mgr: message on vd:progress
+        Mgr-->>B: SignalR "progress" (session group)
+        opt first tick, after a gap, or every 30 s
+            UPD->>Mgr: gRPC UpdateDownloadProgressDownloading
+            Mgr->>PG: save checkpoint
+        end
+    end
+    DL->>RMQ: FINISHED
+    RMQ->>UPD: FINISHED
+    UPD->>Mgr: gRPC (always)
+    Mgr->>PG: save FINISHED
+    UPD->>R: DEL hash + PUBLISH FINISHED
+    R-->>Mgr: message
+    Mgr-->>B: SignalR "changed": the browser re-reads the list
+```
 
 | Step | Who | What |
 | --- | --- | --- |
