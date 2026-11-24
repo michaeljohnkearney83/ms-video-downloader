@@ -21,7 +21,7 @@ finished files to their destination.
 | `docker-compose.{Dev,Prod,Test}.yaml` | Compose stacks; `.env.dev` / `.env.prod` hold queue names and paths | |
 | `MS.Vid-dldr.Web/` | React + TypeScript front end (Vite, vitest), served by nginx in Docker | Node 24 |
 | `observability/grafana/` | Grafana dashboard provisioning for the Dev compose's `otel-lgtm` (see Observability) | |
-| `scripts/` | `Update-Ytdlp.ps1`, `Register-YtdlpUpdateTask.ps1` (see Keeping yt-dlp up to date) | PowerShell |
+| `scripts/` | `Update-Ytdlp.ps1`, `Register-YtdlpUpdateTask.ps1` (see Keeping yt-dlp up to date), `Install-DistributorTask.ps1` (see Run) | PowerShell |
 
 All services and their tests live in this one repository. Each service folder has its own `.sln`. The gRPC contracts
 are the `Protos/ms_vdapi_*.proto` files, which are copied into each service; keep them in sync. The root `.gitignore`
@@ -156,11 +156,20 @@ slashes: compose decodes backslash escapes there.
 
 Grafana (traces, logs, metrics) is then at http://localhost:3000; see Observability.
 
-Then start the Distributor on Windows (it is not in the compose stack):
+Then run the Distributor on Windows (it is not in the compose stack). Install it once as a logon task, so it runs in
+the background whenever you're logged on:
 
 ```powershell
-cd MS.Vid-dldr.Distributor; dotnet run
+./scripts/Install-DistributorTask.ps1              # publish to %LOCALAPPDATA%\ms-vid-dldr\Distributor, register, start
+./scripts/Install-DistributorTask.ps1 -Unregister  # stop it and remove the task
 ```
+
+The script publishes a windowless Debug build (Release would load `appsettings.Release.json`, the original production
+servers) with your `appsettings.Local.json`, and registers task *ms-vid-dldr Distributor*: 1 minute after logon (so
+Docker Desktop can start), no time limit, restarted if it fails, one instance. Re-run it after changing the
+Distributor's code. Its logs are in Grafana (Loki, `service_name="ms-vid-dldr-distributor"`). Run it from your own
+PowerShell: a sandboxed tool's writes to `%LOCALAPPDATA%` aren't visible to Task Scheduler. For a quick run from the
+repo instead: `cd MS.Vid-dldr.Distributor; dotnet run`.
 
 How a download reaches its folder:
 
