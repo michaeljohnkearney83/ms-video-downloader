@@ -58,6 +58,8 @@ services:
       # The downloader health check asks the worker itself what it is doing (stuck jobs), not just the queue.
       - AppSettings__DownloaderHealthUrl=http://downloader:8081/health
       - AppSettings__HomeDrivePath=${MANAGER_HOME_DRIVE_PATH}
+      # Dev is a single-user machine: a Distributor with DistributorUsername "*" may deliver anyone's downloads.
+      - AppSettings__AllowAnyUserDistribution=true
       - OTEL_METRIC_EXPORT_INTERVAL=15000
       - SENTRY_DSN=${SENTRY_DSN:-}
     ports:

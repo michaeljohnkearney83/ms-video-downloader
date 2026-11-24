@@ -254,7 +254,7 @@ public class DistributorService : IHostedService, IDistributorService
 
         try
         {
-            var username = Environment.UserName;
+            var username = _appSettings.DistributorUsername;
 
             if (!isRestCall)
             {

@@ -16,6 +16,7 @@ public class AppSettings : IAppSettings
             ? managementPort : 15672;
         DownloaderHealthUrl = configuration["AppSettings:DownloaderHealthUrl"] ?? "";
         ExchangeDownloadControl = configuration["AppSettings:ExchangeDownloadControl"] ?? "ms_vd_x_downloadControl";
+        AllowAnyUserDistribution = bool.TryParse(configuration["AppSettings:AllowAnyUserDistribution"], out var anyUser) && anyUser;
         WaitForYtdlpToFinishRetryMaxCount = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryMaxCount"]);
         WaitForYtdlpToFinishRetryWait = Convert.ToInt32(configuration["AppSettings:WaitForYtdlpToFinishRetryWait"]);
         MaxFilepathLength = Convert.ToInt32(configuration["AppSettings:MaxFilepathLength"]);
@@ -38,6 +39,11 @@ public class AppSettings : IAppSettings
     public string DownloaderHealthUrl { get; set; }
     /// <summary>Fanout exchange for pause / cancel messages to every Downloader.</summary>
     public string ExchangeDownloadControl { get; set; }
+    /// <summary>
+    /// Lets a Distributor ask for any user's downloads (username "*"). Off by default: in production several users
+    /// share the network folder and each Distributor delivers only its own user's files. On in the Dev compose.
+    /// </summary>
+    public bool AllowAnyUserDistribution { get; set; }
     public int WaitForYtdlpToFinishRetryMaxCount { get; set; }
     public int WaitForYtdlpToFinishRetryWait { get; set; }
     public int MaxFilepathLength { get; set; }

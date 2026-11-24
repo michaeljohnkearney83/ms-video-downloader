@@ -18,6 +18,7 @@ public interface IAppSettings
     int DistributeFileToDeploymentFolderMaxRetry { get; set; }
     int DistributeFileToDeploymentFolderWait { get; set; }
     string HomeDriveLocation { get; set; }
+    string DistributorUsername { get; set; }
     string ManagerApiEndpointGetRequestedDownloadFileInformation { get; set; }
     string ManagerApiEndpointUpdateDownloadProgressDistributed { get; set; }
     string ManagerApiEndpointUpdateDownloadProgressDeleted { get; set; }

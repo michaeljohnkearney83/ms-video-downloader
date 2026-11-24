@@ -22,6 +22,10 @@ public class AppSettings : IAppSettings
         DistributeFileToDeploymentFolderMaxRetry = Convert.ToInt32(configuration["DistributeFileToDeploymentFolderMaxRetry"]);
         DistributeFileToDeploymentFolderWait = Convert.ToInt32(configuration["DistributeFileToDeploymentFolderWait"]);
         HomeDriveLocation = configuration["HomeDriveLocation"];
+        // Whose downloads to deliver: the Windows user by default. "*" = anyone's, for a single-user machine (the
+        // Manager must allow it with AppSettings:AllowAnyUserDistribution).
+        DistributorUsername = string.IsNullOrWhiteSpace(configuration["DistributorUsername"])
+            ? Environment.UserName : configuration["DistributorUsername"];
         ManagerApiEndpointGetRequestedDownloadFileInformation = configuration["ManagerApiEndpointGetRequestedDownloadFileInformation"];
         ManagerApiEndpointUpdateDownloadProgressDistributed = configuration["ManagerApiEndpointUpdateDownloadProgressDistributed"];
         ManagerApiEndpointUpdateDownloadProgressDeleted = configuration["ManagerApiEndpointUpdateDownloadProgressDeleted"];
@@ -43,6 +47,7 @@ public class AppSettings : IAppSettings
     public int DistributeFileToDeploymentFolderMaxRetry { get; set; }
     public int DistributeFileToDeploymentFolderWait { get; set; }
     public string HomeDriveLocation { get; set; }
+    public string DistributorUsername { get; set; }
     public string ManagerApiEndpointGetRequestedDownloadFileInformation { get; set; }
     public string ManagerApiEndpointUpdateDownloadProgressDistributed { get; set; }
     public string ManagerApiEndpointUpdateDownloadProgressDeleted { get; set; }

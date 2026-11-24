@@ -102,7 +102,7 @@ on Windows file locking and fails on Linux (it did before the .NET 11 upgrade to
 | --- | --- |
 | `IgnoreFile` | GUID-named finished files pass; `.part`, `.m4a`, `.ytdlp`, `.json`, multi-dot, non-GUID, BBC / Facebook fragments and listed formats are ignored; missing format list |
 | `MoveFileAsync` | move to the requested folder and name and report distributed; unknown client id; missing destination folder (share file deleted, reported deleted); failed distributed update; locked file (retry and delete-failure logs) |
-| `AppSettings` | `FormatTypeWhitelist` keeps only `true` entries; missing section gives an empty list |
+| `AppSettings` | `FormatTypeWhitelist` keeps only `true` entries; missing section gives an empty list; `DistributorUsername` defaults to the Windows user, `"*"` kept |
 | `Sanitise` | lower-casing and replacing unsafe characters |
 
 ### Ytdlp
@@ -148,7 +148,7 @@ docker compose --env-file .env.dev --env-file .env.dev.local -f docker-compose.D
 | Local file (git-ignored) | Overrides | For |
 | --- | --- | --- |
 | `.env.dev.local` | `.env.dev`: `HOME_DRIVE_PATH` (Downloader share folder), `MANAGER_HOME_DRIVE_PATH` (default download folder), `POSTGRES_HOST_PORT` | the Docker stack; `scripts/Update-Ytdlp.ps1` adds it automatically |
-| `MS.Vid-dldr.Distributor/appsettings.Local.json` | `DownloaderShareFilePath` (same folder as `HOME_DRIVE_PATH`) | the Distributor on Windows |
+| `MS.Vid-dldr.Distributor/appsettings.Local.json` | `DownloaderShareFilePath` (same folder as `HOME_DRIVE_PATH`), `DistributorUsername` (`"*"` on a single-user machine) | the Distributor on Windows |
 | `MS.Vid-dldr.Manager/appsettings.Local.json` | any `AppSettings` value | the Manager with `dotnet run` (not copied into the image) |
 
 The tracked files keep the upstream defaults (`C:\DevelopmentEnvironments\...`). Paths in `.env` files use forward
@@ -170,8 +170,12 @@ How a download reaches its folder:
 2. The Distributor sees the rename that ends the download, asks the Manager where the file goes, moves it to
    `<RequestedDownloadFolder>\<RequestedDownloadName>.<ext>` and marks the download DISTRIBUTED. Until then it stays
    FINISHED.
-3. The Distributor sends the **Windows user name it runs as**. The Manager only returns downloads whose session has
-   that username, so start the session with your Windows user name, or the file stays in the share folder.
+3. The Distributor sends a user name: `DistributorUsername`, by default the **Windows user it runs as**. The Manager
+   only returns downloads whose session has that username, so in production (several users, one network share) each
+   Distributor delivers only its own user's files, and a session started under another name stays in the share
+   folder. On a single-user machine set `"DistributorUsername": "*"` in `appsettings.Local.json` to deliver everyone's
+   downloads; the Manager allows `*` only when `AppSettings:AllowAnyUserDistribution` is true (the Dev compose sets
+   it, production doesn't).
 4. If the requested folder doesn't exist, the Distributor **deletes** the file and marks the download DELETED. An empty
    folder in the request means `AppSettings:HomeDrivePath` + deployment number (`MANAGER_HOME_DRIVE_PATH`, e.g. `C:\Users\<you>\Videos\vd\<deployment no>\`).
 

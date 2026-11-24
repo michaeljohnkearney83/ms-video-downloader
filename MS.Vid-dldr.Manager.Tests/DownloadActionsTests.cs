@@ -60,6 +60,15 @@ public class DownloadActionsTests
         Assert.Equal(ignored, DownloadActions.IsStoppedByUser(status));
     }
 
+    [Theory]
+    [InlineData("*", true, true)]
+    [InlineData("*", false, false)] // a production Manager never hands out other users' files
+    [InlineData("MJK138", true, false)] // a named user still matches only their own downloads
+    public void AnyUserDistribution_NeedsBothTheStarAndTheManagersPermission(string username, bool allowed, bool expected)
+    {
+        Assert.Equal(expected, DownloadActions.IsAnyUserDistribution(username, allowed));
+    }
+
     [Fact]
     public void ControlMessage_HasTheFieldsTheDownloaderReads()
     {

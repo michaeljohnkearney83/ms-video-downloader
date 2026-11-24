@@ -38,10 +38,11 @@ public class VdApiCallsForDistributorService : VdApiCallsForDistributor.VdApiCal
         {
             var downloadEnt = (Download)null;
             var retryCount = 0;
+            var anyUser = DownloadActions.IsAnyUserDistribution(request.Username, _appSettings.AllowAnyUserDistribution);
 
             while (retryCount < _appSettings.WaitForYtdlpToFinishRetryMaxCount - 1)
             {
-                downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.ClientId == Guid.Parse(request.ClientId) && x.DownloadSession.Username.ToLower() == request.Username.ToLower());
+                downloadEnt = await _dbContext.Downloads.FirstOrDefaultAsync(x => x.ClientId == Guid.Parse(request.ClientId) && (anyUser || x.DownloadSession.Username.ToLower() == request.Username.ToLower()));
 
                 if (downloadEnt != null && downloadEnt.Status == Constants.DownloadStatusTypeFinished) break;
 

@@ -30,6 +30,13 @@ public static class DownloadActions
     public static bool IsStoppedByUser(string status) =>
         status is Constants.DownloadStatusTypePaused or Constants.DownloadStatusTypeCancelled;
 
+    /// <summary>
+    /// A Distributor asking with username "*" may deliver anyone's downloads, but only where the Manager allows it
+    /// (AppSettings:AllowAnyUserDistribution; single-user machines).
+    /// </summary>
+    public static bool IsAnyUserDistribution(string requestedUsername, bool allowAnyUser) =>
+        allowAnyUser && requestedUsername == "*";
+
     /// <summary>Null when the action is allowed, otherwise the reason it isn't.</summary>
     public static string? Validate(string action, string status) => action switch
     {

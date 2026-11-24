@@ -25,6 +25,7 @@ internal sealed class TestAppSettings : IAppSettings
     public int DistributeFileToDeploymentFolderMaxRetry { get; set; } = 2;
     public int DistributeFileToDeploymentFolderWait { get; set; } = 0;
     public string HomeDriveLocation { get; set; } = "";
+    public string DistributorUsername { get; set; } = "tester";
     public string ManagerApiEndpointGetRequestedDownloadFileInformation { get; set; } = "/v1/distributor/downloadFileInfo/{username}/{client_id}";
     public string ManagerApiEndpointUpdateDownloadProgressDistributed { get; set; } = "/v1/distributor/downloadProgress/distributed/{client_id}";
     public string ManagerApiEndpointUpdateDownloadProgressDeleted { get; set; } = "/v1/distributor/downloadProgress/deleted/{client_id}/{reason}";

@@ -33,6 +33,13 @@ public class AppSettingsTests
     }
 
     [Fact]
+    public void Distributor_username_defaults_to_the_Windows_user()
+    {
+        Assert.Equal(Environment.UserName, new AppSettings(Config(new())).DistributorUsername);
+        Assert.Equal("*", new AppSettings(Config(new() { ["DistributorUsername"] = "*" })).DistributorUsername);
+    }
+
+    [Fact]
     public void Missing_format_list_gives_empty_list()
     {
         var settings = new AppSettings(Config(new()));
